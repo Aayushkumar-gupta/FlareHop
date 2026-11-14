@@ -23,6 +23,7 @@ class BleAdvertiser(private val context: Context, private val engine: FlareEngin
     private var last: ByteArray? = null
     private var set: AdvertisingSet? = null
     private var job: Job? = null
+    private var warnedOff = false
 
     private val parameters = AdvertisingSetParameters.Builder()
         .setLegacyMode(true)
@@ -77,10 +78,12 @@ class BleAdvertiser(private val context: Context, private val engine: FlareEngin
     private fun step() {
         val advertiser = leAdvertiser()
         if (advertiser == null) {
-            if (state != AdvertState.STOPPED) Log.w(TAG, "Bluetooth is off, advertising paused")
+            if (!warnedOff) Log.w(TAG, "Bluetooth is off, not advertising")
+            warnedOff = true
             clear()
             return
         }
+        warnedOff = false
         when (val action = AdvertPlanner.decide(state, last, engine.nextPacket())) {
             is AdvertAction.Start -> {
                 state = AdvertState.STARTING

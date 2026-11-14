@@ -19,12 +19,13 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 | Packet codec | Encode and decode the four 24-byte packet types | Done |
 | Flare engine | SOS records, receipts, signal readings, event log, session ID, cancel | Done |
 | Advertiser | Bluetooth LE broadcast, foreground service, radio test screen | Done |
-| Scanner | Hear other phones' packets and pass them to the engine | Next |
-| Handoff rules | Standby, planned handoff, takeover, cancel | Planned |
+| Scanner | Hear other phones' packets and pass them to the engine | Done |
+| Priority score | Rank SOS records by urgency (Contract 5) | Done |
+| Handoff rules | Standby, planned handoff, takeover, two-carrier conflict | Next (tests already written) |
 | Screens | Role picker, SOS screen, rescuer dashboard, Find mode | Planned |
 | Signs of life | On-device sound detection with YAMNet | Planned |
 
-On a phone the app opens a temporary radio test screen: pick a role, send a test SOS, cancel it, and stop the beacon. The real screens replace it later. Phones can broadcast but not yet hear each other.
+On a phone the app opens a temporary radio test screen: pick a role, send a test SOS, cancel it, stop the beacon, and see every SOS the phone hears. The real screens replace it later. Two Flarehop phones now hear each other: a rescuer phone sends a receipt, and the victim phone shows it as acked.
 
 ## How it works
 
@@ -55,15 +56,23 @@ app/src/main/java/com/flarehop/
 │   ├── Flare.kt           the one engine instance the app shares
 │   ├── AdvertPlanner.kt   decides when to start, update, pause or resume the advert
 │   ├── BleAdvertiser.kt   broadcasts the engine's packets every 300 ms
+│   ├── BleScanner.kt      hears Flarehop packets and hands them to the engine
 │   └── FlareService.kt    foreground service that keeps the beacon on
 ├── ui/                    screens (App lead)
 │   └── theme/
-└── sense/                 sound, location, battery, priority score (AI lead), not created yet
+└── sense/                 sound, location, battery, priority score (AI lead)
+    └── PriorityScore.kt   urgency score, bands and ranking
 app/src/test/java/com/flarehop/
-└── flare/
-    ├── AdvertPlannerTest.kt
-    ├── PacketCodecTest.kt
-    └── RealFlareEngineTest.kt
+├── flare/
+│   ├── AdvertPlannerTest.kt
+│   ├── PacketCodecTest.kt
+│   └── RealFlareEngineTest.kt
+├── handoff/
+│   ├── FakeRadio.kt       in-memory radio that connects several engines
+│   ├── RescueLoopTest.kt
+│   └── HandoffRulesTest.kt
+└── sense/
+    └── PriorityScoreTest.kt
 ```
 
 Each person works only in their own package. `SosRecord`, `FlareEngine` and `FlareConstants` are shared contracts: only the Project lead changes them, after telling the team.
@@ -111,15 +120,29 @@ All versions live in `gradle/libs.versions.toml`.
 
 ## Permissions
 
-The app asks for **Nearby devices** (Bluetooth advertise) and, on Android 13 and newer, **Notifications** when you pick a role. Without Nearby devices the beacon cannot start. The beacon runs as a foreground service with a "Flarehop is on" notification, so it keeps broadcasting with the screen off. Location, scanning and microphone permissions are added with the features that need them.
+When you pick a role the app asks for:
 
-## Trying it on a phone
+| Permission | Why |
+|---|---|
+| Nearby devices (Bluetooth advertise and scan) | To broadcast the SOS and hear other phones. Without it the beacon cannot start. |
+| Location, precise | Android only delivers Bluetooth scan results to apps with location access, because Bluetooth beacons can reveal where you are. Without it the phone broadcasts but hears nothing. |
+| Notifications (Android 13 and newer) | To show the "Flarehop is on" notification of the foreground service. |
 
-1. Install it on a physical phone: `./gradlew installDebug` with the phone connected over USB, or **Run** in Android Studio.
-2. Turn Bluetooth on, open Flarehop, tap **VICTIM** and allow the permissions.
-3. Tap **Send test SOS**.
-4. On a second phone, open nRF Connect, start a scan and find the device with manufacturer data `0xFFFF`. Its data starts with `21`: version 2, type SOS.
-5. Tap **Cancel SOS** on the first phone. The data starts with `24` (HANDOFF with successor 0) for 10 seconds, then the advert stops.
+The beacon runs as a foreground service, so it keeps broadcasting and listening with the screen off. The microphone permission is added with sound detection.
+
+## Trying it on phones
+
+You need two phones with Android 12 or newer, Bluetooth on and Location on.
+
+1. Install it on each phone: `./gradlew installDebug` with the phones connected over USB, or **Run** in Android Studio.
+2. Phone A: open Flarehop, tap **VICTIM**, allow every permission, then tap **Send test SOS**.
+3. Phone C: open Flarehop, tap **RESCUER** and allow every permission.
+4. Within a few seconds phone C lists the SOS ("SOS heard: 1") with its signal strength, and phone A shows `acked true`.
+5. Tap **Cancel SOS** on phone A. Phone C shows the SOS as `cancelled true`.
+
+To watch the radio in Logcat: `adb logcat -s FlareAdvertiser FlareScanner`.
+
+To check the raw packet without a second Flarehop phone, scan with nRF Connect and look for manufacturer data `0xFFFF` starting with `21` (version 2, type SOS).
 
 ## Development tools
 
@@ -153,6 +176,9 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | `AdvertPlannerTest` | When the advertiser starts, updates, skips an unchanged packet, pauses and resumes |
 | `PacketCodecTest` | Round trips for all four packet types, exact byte layout, no-fix value, caps at 254, unknown values as 255, and the drop rules |
 | `RealFlareEngineTest` | Sending an SOS, records for heard SOS, signal readings, dropped packets, receipts and the 15-second receipt window, acknowledgements, cancel, packet rotation and reset. Uses a fake clock, so no waiting |
+| `RescueLoopTest` | Victim, nearby and rescuer engines on a fake radio: the rescuer hears the SOS with its signal strength, the victim gets the receipt, out-of-range phones hear nothing, cancel reaches the rescuer |
+| `HandoffRulesTest` | Every handoff rule from Contract 3. Skipped (`@Ignore`) until the handoff rules are built |
+| `PriorityScoreTest` | The four score checks from Contract 5, the 10-minute sound window, and ties going to the SOS heard first |
 
 To build the app:
 ```

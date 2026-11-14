@@ -22,10 +22,12 @@ import kotlinx.coroutines.cancel
 class FlareService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var advertiser: BleAdvertiser
+    private lateinit var scanner: BleScanner
 
     override fun onCreate() {
         super.onCreate()
         advertiser = BleAdvertiser(this, Flare.engine)
+        scanner = BleScanner(this, Flare.engine)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -35,13 +37,17 @@ class FlareService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            notification(),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-        )
+        var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        if (granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        }
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), types)
         advertiser.start(scope)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            scanner.start(scope)
+        }
         return START_NOT_STICKY
     }
 
@@ -51,9 +57,17 @@ class FlareService : Service() {
         ) {
             advertiser.stop()
         }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            scanner.stop()
+        }
         scope.cancel()
         super.onDestroy()
     }
+
+    private fun granted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     override fun onBind(intent: Intent?): IBinder? = null
 

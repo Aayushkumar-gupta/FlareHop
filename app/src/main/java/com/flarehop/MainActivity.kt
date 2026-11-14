@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -58,6 +60,9 @@ private val testSos = SosDetails(
 
 private fun radioPermissions(): Array<String> = buildList {
     add(Manifest.permission.BLUETOOTH_ADVERTISE)
+    add(Manifest.permission.BLUETOOTH_SCAN)
+    add(Manifest.permission.ACCESS_FINE_LOCATION)
+    add(Manifest.permission.ACCESS_COARSE_LOCATION)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         add(Manifest.permission.POST_NOTIFICATIONS)
     }
@@ -75,17 +80,23 @@ fun RadioTestScreen(modifier: Modifier = Modifier) {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { granted ->
-        if (granted[Manifest.permission.BLUETOOTH_ADVERTISE] == true) {
-            FlareService.start(context)
-            status = "Beacon service running"
-        } else {
-            status = "Nearby devices permission denied: the beacon cannot start"
+        val canScan = granted[Manifest.permission.BLUETOOTH_SCAN] == true &&
+            granted[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        status = when {
+            granted[Manifest.permission.BLUETOOTH_ADVERTISE] != true ->
+                "Nearby devices permission denied: the beacon cannot start"
+
+            !canScan -> "Broadcasting only: allow precise Location to hear other phones"
+
+            else -> "Beacon running: broadcasting and listening"
         }
+        if (granted[Manifest.permission.BLUETOOTH_ADVERTISE] == true) FlareService.start(context)
     }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -132,5 +143,12 @@ fun RadioTestScreen(modifier: Modifier = Modifier) {
                 ?: "My SOS: none",
         )
         Text("SOS heard: ${known.size}")
+        known.forEach { sos ->
+            Text(
+                "SOS ${sos.messageId} from ${sos.originId} via ${sos.carrierId}: " +
+                    "${sos.lastRssi} dBm, battery ${sos.battery ?: "?"}, " +
+                    "acked ${sos.acked}, cancelled ${sos.cancelled}",
+            )
+        }
     }
 }
