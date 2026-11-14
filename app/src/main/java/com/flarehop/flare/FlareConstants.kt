@@ -22,6 +22,7 @@ object FlareConstants {
     const val STANDBY_INTERVAL_MS = 5_000L
     const val HANDOFF_RETRY_MS = 30_000L
     const val CANCEL_ADVERT_MS = 10_000L
+    const val RECEIPT_KEEP_MS = 15_000L
     const val LOW_POWER_BATTERY_PERCENT = 30
     const val ADVERT_ROTATION_MS = 300L
 }

@@ -1,0 +1,284 @@
+package com.flarehop.flare
+
+import com.flarehop.flare.FlareConstants.CANCEL_ADVERT_MS
+import com.flarehop.flare.FlareConstants.RECEIPT_KEEP_MS
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlin.random.Random
+
+class RealFlareEngine(
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val random: Random = Random.Default,
+) : FlareEngine {
+    private val lock = Any()
+
+    private val mySosState = MutableStateFlow<MySos?>(null)
+    private val knownSosState = MutableStateFlow<List<SosRecord>>(emptyList())
+    private val groupState = MutableStateFlow<List<GroupMember>>(emptyList())
+    private val signals = MutableSharedFlow<DirectSignal>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    private val events = MutableSharedFlow<LogEvent>(
+        extraBufferCapacity = 256,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    override val mySos: StateFlow<MySos?> = mySosState.asStateFlow()
+    override val knownSos: StateFlow<List<SosRecord>> = knownSosState.asStateFlow()
+    override val group: StateFlow<List<GroupMember>> = groupState.asStateFlow()
+    override val directSignal: SharedFlow<DirectSignal> = signals.asSharedFlow()
+    override val log: SharedFlow<LogEvent> = events.asSharedFlow()
+
+    var phoneId: Int = newPhoneId()
+        private set
+
+    private var role = Role.VICTIM
+    private var battery: Int? = null
+    private var sound = SoundType.NONE
+    private var soundAtMs = 0L
+    private var sentAtMs = 0L
+    private val records = LinkedHashMap<Long, SosRecord>()
+    private val receipts = LinkedHashMap<Long, ReceiptPacket>()
+    private var cancel: HandoffPacket? = null
+    private var cancelUntilMs = 0L
+    private var rotation = 0
+
+    override fun onPacket(bytes: ByteArray, rssi: Int, atMs: Long) {
+        synchronized(lock) {
+            when (val decoded = PacketCodec.decode(bytes)) {
+                is Decoded.Dropped -> emit(LogType.DROPPED, 0L, 0, atMs, decoded.reason)
+                is Decoded.Ok -> when (val packet = decoded.packet) {
+                    is SosPacket -> onSos(packet, rssi, atMs)
+                    is ReceiptPacket -> onReceipt(packet, atMs)
+                    is HandoffPacket -> if (packet.successorId == 0) onCancel(packet, atMs)
+                    is StandbyPacket -> Unit
+                }
+            }
+        }
+    }
+
+    override fun sendSos(details: SosDetails, fix: Fix?) {
+        synchronized(lock) {
+            val now = clock()
+            val record = SosRecord(
+                messageId = newMessageId(),
+                originId = phoneId,
+                carrierId = phoneId,
+                latitude = fix?.latitude,
+                longitude = fix?.longitude,
+                accuracyM = fix?.accuracyM,
+                fixAgeMin = fix?.fixAgeMin,
+                people = details.people,
+                injured = details.injured,
+                trapped = details.trapped,
+                water = details.water,
+                medical = details.medical,
+                fire = details.fire,
+                battery = battery,
+                sound = sound,
+                soundAgeMin = soundAgeMin(now),
+                firstHeardAt = now,
+                lastHeardAt = now,
+                lastRssi = null,
+                acked = false,
+                cancelled = false,
+            )
+            sentAtMs = now
+            cancel = null
+            mySosState.value = MySos(record, SosStatus.SENDING)
+        }
+    }
+
+    override fun cancelSos() {
+        synchronized(lock) {
+            val current = mySosState.value ?: return
+            cancel = HandoffPacket(
+                messageId = current.record.messageId,
+                originId = current.record.originId,
+                carrierId = phoneId,
+                successorId = 0,
+                battery = battery,
+            )
+            cancelUntilMs = clock() + CANCEL_ADVERT_MS
+            mySosState.value = null
+        }
+    }
+
+    override fun setRole(role: Role) {
+        synchronized(lock) { this.role = role }
+    }
+
+    override fun setBattery(percent: Int) {
+        synchronized(lock) {
+            battery = percent.coerceIn(0, 100)
+            updateMyRecord { it.copy(battery = battery) }
+        }
+    }
+
+    override fun setSound(type: SoundType, atMs: Long) {
+        synchronized(lock) {
+            sound = type
+            soundAtMs = atMs
+            updateMyRecord { it.copy(sound = type, soundAgeMin = soundAgeMin(clock())) }
+        }
+    }
+
+    override fun nextPacket(): ByteArray? {
+        synchronized(lock) {
+            val now = clock()
+            if (cancel != null && now >= cancelUntilMs) cancel = null
+            val packets = buildList {
+                mySosState.value
+                    ?.takeIf { it.status == SosStatus.SENDING }
+                    ?.let { add(sosPacket(it.record, now)) }
+                cancel?.let { add(it) }
+                receipts.forEach { (messageId, receipt) ->
+                    val heard = records[messageId]?.lastHeardAt ?: return@forEach
+                    if (now - heard <= RECEIPT_KEEP_MS) add(receipt)
+                }
+            }
+            if (packets.isEmpty()) return null
+            val packet = packets[rotation % packets.size]
+            rotation++
+            return PacketCodec.encode(packet)
+        }
+    }
+
+    override fun reset() {
+        synchronized(lock) {
+            phoneId = newPhoneId()
+            sound = SoundType.NONE
+            soundAtMs = 0L
+            sentAtMs = 0L
+            records.clear()
+            receipts.clear()
+            cancel = null
+            cancelUntilMs = 0L
+            rotation = 0
+            mySosState.value = null
+            knownSosState.value = emptyList()
+            groupState.value = emptyList()
+        }
+    }
+
+    private fun onSos(packet: SosPacket, rssi: Int, atMs: Long) {
+        val existing = records[packet.messageId]
+        records[packet.messageId] = SosRecord(
+            messageId = packet.messageId,
+            originId = packet.originId,
+            carrierId = packet.carrierId,
+            latitude = packet.latitude,
+            longitude = packet.longitude,
+            accuracyM = packet.accuracyM,
+            fixAgeMin = packet.fixAgeMin,
+            people = packet.details.people,
+            injured = packet.details.injured,
+            trapped = packet.details.trapped,
+            water = packet.details.water,
+            medical = packet.details.medical,
+            fire = packet.details.fire,
+            battery = packet.battery,
+            sound = packet.sound,
+            soundAgeMin = packet.soundAgeMin,
+            firstHeardAt = existing?.firstHeardAt ?: atMs,
+            lastHeardAt = atMs,
+            lastRssi = rssi,
+            acked = existing?.acked ?: false,
+            cancelled = existing?.cancelled ?: false,
+        )
+        publishRecords()
+        if (existing == null) emit(LogType.HEARD, packet.messageId, packet.carrierId, atMs)
+        signals.tryEmit(DirectSignal(packet.messageId, packet.carrierId, rssi, atMs))
+        if (role == Role.RESCUER && packet.messageId !in receipts) {
+            receipts[packet.messageId] = ReceiptPacket(
+                receiptId = newMessageId(),
+                rescuerId = phoneId,
+                ackedMessageId = packet.messageId,
+            )
+            emit(LogType.RECEIPT_SENT, packet.messageId, phoneId, atMs)
+        }
+    }
+
+    private fun onReceipt(packet: ReceiptPacket, atMs: Long) {
+        var matched = false
+        records[packet.ackedMessageId]?.let { record ->
+            if (!record.acked) {
+                records[packet.ackedMessageId] = record.copy(acked = true)
+                publishRecords()
+                matched = true
+            }
+        }
+        mySosState.value?.let { mine ->
+            if (mine.record.messageId == packet.ackedMessageId && !mine.record.acked) {
+                mySosState.value = mine.copy(record = mine.record.copy(acked = true))
+                matched = true
+            }
+        }
+        if (matched) emit(LogType.RECEIPT_MATCHED, packet.ackedMessageId, packet.rescuerId, atMs)
+    }
+
+    private fun onCancel(packet: HandoffPacket, atMs: Long) {
+        receipts.remove(packet.messageId)
+        val record = records[packet.messageId] ?: return
+        if (record.cancelled) return
+        records[packet.messageId] = record.copy(cancelled = true)
+        publishRecords()
+        emit(LogType.CANCELLED, packet.messageId, packet.carrierId, atMs)
+    }
+
+    private fun sosPacket(record: SosRecord, now: Long) = SosPacket(
+        messageId = record.messageId,
+        originId = record.originId,
+        carrierId = phoneId,
+        sound = sound,
+        soundAgeMin = soundAgeMin(now),
+        latitude = record.latitude,
+        longitude = record.longitude,
+        accuracyM = record.accuracyM,
+        fixAgeMin = record.fixAgeMin?.plus(minutesBetween(sentAtMs, now)),
+        details = SosDetails(
+            people = record.people,
+            injured = record.injured,
+            trapped = record.trapped,
+            water = record.water,
+            medical = record.medical,
+            fire = record.fire,
+        ),
+        battery = battery,
+    )
+
+    private fun updateMyRecord(change: (SosRecord) -> SosRecord) {
+        val mine = mySosState.value ?: return
+        mySosState.value = mine.copy(record = change(mine.record))
+    }
+
+    private fun publishRecords() {
+        knownSosState.value = records.values.toList()
+    }
+
+    private fun emit(
+        type: LogType,
+        messageId: Long,
+        phoneId: Int,
+        atMs: Long,
+        reason: String? = null,
+    ) {
+        events.tryEmit(LogEvent(type, messageId, phoneId, atMs, reason))
+    }
+
+    private fun soundAgeMin(now: Long): Int? =
+        if (sound == SoundType.NONE) null else minutesBetween(soundAtMs, now)
+
+    private fun minutesBetween(fromMs: Long, toMs: Long): Int =
+        ((toMs - fromMs).coerceAtLeast(0L) / 60_000L).toInt()
+
+    private fun newPhoneId(): Int = random.nextInt(1, 0x1_0000)
+
+    private fun newMessageId(): Long = random.nextLong(1L, 0x1_0000_0000L)
+}
