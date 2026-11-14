@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">Flarehop</string>
+    <string name="beacon_channel_name">Beacon</string>
+    <string name="beacon_notification_title">Flarehop is on</string>
+    <string name="beacon_notification_text">Broadcasting over Bluetooth</string>
 </resources>
