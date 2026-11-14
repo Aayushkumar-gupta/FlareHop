@@ -17,8 +17,8 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 | Dependencies | Coroutines, ViewModel, MediaPipe audio, coroutines-test | Done |
 | Skeleton | `SosRecord`, the `FlareEngine` interface, shared constants | Done |
 | Packet codec | Encode and decode the four 24-byte packet types | Done |
-| Flare engine | SOS records, receipts, signal readings, event log, session ID | Next |
-| Advertiser and scanner | Bluetooth LE broadcast and scan, foreground service | Planned |
+| Flare engine | SOS records, receipts, signal readings, event log, session ID, cancel | Done |
+| Advertiser and scanner | Bluetooth LE broadcast and scan, foreground service | Next |
 | Handoff rules | Standby, planned handoff, takeover, cancel | Planned |
 | Screens | Role picker, SOS screen, rescuer dashboard, Find mode | Planned |
 | Signs of life | On-device sound detection with YAMNet | Planned |
@@ -38,6 +38,8 @@ Every message is exactly 24 bytes, sent as manufacturer data under company ID `0
 
 A missing GPS fix is sent as the smallest 32-bit number, never as 0,0. Packets with the wrong length, version, type or an impossible position are dropped.
 
+The flare engine is the only part of the app that talks to the radio. Screens call its actions (`sendSos`, `cancelSos`, `setRole`, `setBattery`, `setSound`, `reset`) and watch its streams (`mySos`, `knownSos`, `group`, `directSignal`, `log`). Each phone picks a new random ID every session, and a rescuer phone sends one receipt for every SOS it hears.
+
 ## Code layout
 
 ```
@@ -47,13 +49,15 @@ app/src/main/java/com/flarehop/
 │   ├── FlareConstants.kt  packet values, timings and thresholds
 │   ├── SosRecord.kt       SosRecord, SosDetails, Fix, SoundType
 │   ├── FlareEngine.kt     the engine interface the screens use
-│   └── PacketCodec.kt     24-byte packet encode and decode
+│   ├── PacketCodec.kt     24-byte packet encode and decode
+│   └── RealFlareEngine.kt the engine: records, receipts, signals, log
 ├── ui/                    screens (App lead)
 │   └── theme/
 └── sense/                 sound, location, battery, priority score (AI lead), not created yet
 app/src/test/java/com/flarehop/
 └── flare/
-    └── PacketCodecTest.kt
+    ├── PacketCodecTest.kt
+    └── RealFlareEngineTest.kt
 ```
 
 Each person works only in their own package. `SosRecord`, `FlareEngine` and `FlareConstants` are shared contracts: only the Project lead changes them, after telling the team.
@@ -112,6 +116,7 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | Test file | Checks |
 |---|---|
 | `PacketCodecTest` | Round trips for all four packet types, exact byte layout, no-fix value, caps at 254, unknown values as 255, and the drop rules |
+| `RealFlareEngineTest` | Sending an SOS, records for heard SOS, signal readings, dropped packets, receipts and the 15-second receipt window, acknowledgements, cancel, packet rotation and reset. Uses a fake clock, so no waiting |
 
 To build the app:
 ```
