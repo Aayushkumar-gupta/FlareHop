@@ -52,28 +52,34 @@ class PriorityScoreTest {
     }
 
     @Test
-    fun trappedInjuredTwoPeopleIsCritical80() =
-        check(record(people = 2, injured = true, trapped = true, battery = 50), 80, PriorityBand.CRITICAL)
+    fun trappedInjuredTwoPeopleIsCritical80() = check(
+        record(people = 2, injured = true, trapped = true, battery = 50),
+        80,
+        PriorityBand.CRITICAL,
+    )
 
     @Test
-    fun trappedTwoPeopleKnockingIsCritical70() =
-        check(
-            record(people = 2, trapped = true, battery = 60, sound = SoundType.KNOCK, soundAgeMin = 2),
-            70,
-            PriorityBand.CRITICAL,
-        )
+    fun trappedTwoPeopleKnockingIsCritical70() = check(
+        record(
+            people = 2,
+            trapped = true,
+            battery = 60,
+            sound = SoundType.KNOCK,
+            soundAgeMin = 2,
+        ),
+        70,
+        PriorityBand.CRITICAL,
+    )
 
     @Test
-    fun waterFourPeopleLowBatteryAfter30MinIsHigh61() =
-        check(
-            record(people = 4, water = true, battery = 15, firstHeardAt = now - 30 * minute),
-            61,
-            PriorityBand.HIGH,
-        )
+    fun waterFourPeopleLowBatteryAfter30MinIsHigh61() = check(
+        record(people = 4, water = true, battery = 15, firstHeardAt = now - 30 * minute),
+        61,
+        PriorityBand.HIGH,
+    )
 
     @Test
-    fun onePersonNoFlagsIsNormal5() =
-        check(record(people = 1), 5, PriorityBand.NORMAL)
+    fun onePersonNoFlagsIsNormal5() = check(record(people = 1), 5, PriorityBand.NORMAL)
 
     @Test
     fun soundStopsCountingOnceOlderThanTenMinutes() {

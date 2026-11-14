@@ -3,11 +3,11 @@ package com.flarehop.handoff
 import com.flarehop.flare.RealFlareEngine
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosDetails
+import kotlin.random.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.random.Random
 
 class RescueLoopTest {
     private val radio = FakeRadio()

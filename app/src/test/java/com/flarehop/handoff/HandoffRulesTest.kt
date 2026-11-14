@@ -9,12 +9,12 @@ import com.flarehop.flare.SosDetails
 import com.flarehop.flare.SosPacket
 import com.flarehop.flare.SosStatus
 import com.flarehop.flare.SoundType
+import kotlin.random.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Ignore
 import org.junit.Test
-import kotlin.random.Random
 
 @Ignore("Waits for the handoff rules in RealFlareEngine (Build list: Handoff rules)")
 class HandoffRulesTest {
