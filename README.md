@@ -121,6 +121,23 @@ The app asks for **Nearby devices** (Bluetooth advertise) and, on Android 13 and
 4. On a second phone, open nRF Connect, start a scan and find the device with manufacturer data `0xFFFF`. Its data starts with `21`: version 2, type SOS.
 5. Tap **Cancel SOS** on the first phone. The data starts with `24` (HANDOFF with successor 0) for 10 seconds, then the advert stops.
 
+## Development tools
+
+| Tool | What it does | Command |
+|---|---|---|
+| ktlint | Formats Kotlin and checks the code style. Settings are in `.editorconfig` (Android Studio style, 100-character lines, trailing commas). | `./gradlew ktlintFormat` fixes, `./gradlew ktlintCheck` checks |
+| Android lint | Finds Android bugs, such as Bluetooth calls without a permission check | `./gradlew lintDebug` |
+| Unit tests | JUnit tests that run on your computer | `./gradlew testDebugUnitTest` |
+| CI | GitHub Actions runs all of the above and builds the APK on every push to `main` and every pull request | `.github/workflows/ci.yml` |
+
+Before you push, run:
+```
+./gradlew ktlintFormat ktlintCheck testDebugUnitTest lintDebug
+```
+If CI shows a red cross on GitHub, open the run to see which step failed.
+
+Android Studio picks up `.editorconfig` by itself, so **Code > Reformat Code** gives the same result as `ktlintFormat`.
+
 ## Running tests
 
 Run all unit tests from the project folder:

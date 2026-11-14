@@ -2,6 +2,7 @@ package com.flarehop.flare
 
 import com.flarehop.flare.FlareConstants.CANCEL_ADVERT_MS
 import com.flarehop.flare.FlareConstants.RECEIPT_KEEP_MS
+import kotlin.random.Random
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,7 +10,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlin.random.Random
 
 class RealFlareEngine(
     private val clock: () -> Long = System::currentTimeMillis,
@@ -53,6 +53,7 @@ class RealFlareEngine(
         synchronized(lock) {
             when (val decoded = PacketCodec.decode(bytes)) {
                 is Decoded.Dropped -> emit(LogType.DROPPED, 0L, 0, atMs, decoded.reason)
+
                 is Decoded.Ok -> when (val packet = decoded.packet) {
                     is SosPacket -> onSos(packet, rssi, atMs)
                     is ReceiptPacket -> onReceipt(packet, atMs)

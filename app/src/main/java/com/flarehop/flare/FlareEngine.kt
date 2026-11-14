@@ -7,10 +7,7 @@ enum class Role { VICTIM, NEARBY, RESCUER }
 
 enum class SosStatus { SENDING, STANDING_BY, HANDED_OFF }
 
-data class MySos(
-    val record: SosRecord,
-    val status: SosStatus,
-)
+data class MySos(val record: SosRecord, val status: SosStatus)
 
 data class GroupMember(
     val phoneId: Int,
@@ -20,12 +17,7 @@ data class GroupMember(
     val lastHeardAt: Long,
 )
 
-data class DirectSignal(
-    val messageId: Long,
-    val carrierId: Int,
-    val rssi: Int,
-    val atMs: Long,
-)
+data class DirectSignal(val messageId: Long, val carrierId: Int, val rssi: Int, val atMs: Long)
 
 enum class LogType {
     HEARD,

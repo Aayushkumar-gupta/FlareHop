@@ -28,11 +28,8 @@ data class SosPacket(
     val battery: Int?,
 ) : Packet
 
-data class ReceiptPacket(
-    val receiptId: Long,
-    val rescuerId: Int,
-    val ackedMessageId: Long,
-) : Packet
+data class ReceiptPacket(val receiptId: Long, val rescuerId: Int, val ackedMessageId: Long) :
+    Packet
 
 data class StandbyPacket(
     val messageId: Long,
@@ -77,6 +74,7 @@ object PacketCodec {
                 val soundAge = if (packet.sound == SoundType.NONE) null else packet.soundAgeMin
                 buf.put(23, capped(soundAge))
             }
+
             is ReceiptPacket -> {
                 buf.put(0, header(TYPE_RECEIPT))
                 buf.putInt(1, packet.receiptId.toInt())
@@ -84,6 +82,7 @@ object PacketCodec {
                 buf.putShort(7, packet.rescuerId.toShort())
                 buf.putInt(10, packet.ackedMessageId.toInt())
             }
+
             is StandbyPacket -> {
                 buf.put(0, header(TYPE_STANDBY))
                 buf.putInt(1, packet.messageId.toInt())
@@ -91,6 +90,7 @@ object PacketCodec {
                 buf.putShort(7, packet.standbyId.toShort())
                 buf.put(22, batteryByte(packet.battery))
             }
+
             is HandoffPacket -> {
                 buf.put(0, header(TYPE_HANDOFF))
                 buf.putInt(1, packet.messageId.toInt())
@@ -111,17 +111,20 @@ object PacketCodec {
         if (version != PROTOCOL_VERSION) return Decoded.Dropped("version $version")
         val packet = when (type) {
             TYPE_SOS -> return decodeSos(buf)
+
             TYPE_RECEIPT -> ReceiptPacket(
                 receiptId = u32(buf, 1),
                 rescuerId = u16(buf, 5),
                 ackedMessageId = u32(buf, 10),
             )
+
             TYPE_STANDBY -> StandbyPacket(
                 messageId = u32(buf, 1),
                 originId = u16(buf, 5),
                 standbyId = u16(buf, 7),
                 battery = batteryValue(u8(buf, 22)),
             )
+
             TYPE_HANDOFF -> HandoffPacket(
                 messageId = u32(buf, 1),
                 originId = u16(buf, 5),
@@ -129,6 +132,7 @@ object PacketCodec {
                 successorId = u16(buf, 10),
                 battery = batteryValue(u8(buf, 22)),
             )
+
             else -> return Decoded.Dropped("type $type")
         }
         return Decoded.Ok(packet)

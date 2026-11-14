@@ -18,10 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-class BleAdvertiser(
-    private val context: Context,
-    private val engine: FlareEngine,
-) {
+class BleAdvertiser(private val context: Context, private val engine: FlareEngine) {
     private var state = AdvertState.STOPPED
     private var last: ByteArray? = null
     private var set: AdvertisingSet? = null
@@ -97,21 +94,25 @@ class BleAdvertiser(
                     callback,
                 )
             }
+
             is AdvertAction.Update -> {
                 set?.setAdvertisingData(data(action.bytes))
                 last = action.bytes
             }
+
             is AdvertAction.Resume -> {
                 set?.setAdvertisingData(data(action.bytes))
                 set?.enableAdvertising(true, 0, 0)
                 state = AdvertState.ON
                 last = action.bytes
             }
+
             AdvertAction.Pause -> {
                 set?.enableAdvertising(false, 0, 0)
                 state = AdvertState.PAUSED
                 last = null
             }
+
             AdvertAction.Wait -> Unit
         }
     }
