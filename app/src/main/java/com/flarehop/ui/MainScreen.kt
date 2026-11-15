@@ -15,10 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.flarehop.flare.Role
 
-// true  = development: screens run on FakeEngine sample data, Bluetooth stays off.
-// false = test: screens run on the real engine, with real Bluetooth scanning and advertising.
-const val DEVELOPMENT = false
-
 @Composable
 fun MainScreen(flare: FlareViewModel) {
     val tab by flare.tab.collectAsState()

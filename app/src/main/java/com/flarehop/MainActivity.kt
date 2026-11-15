@@ -13,7 +13,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.flarehop.flare.FlareService
-import com.flarehop.ui.DEVELOPMENT
 import com.flarehop.ui.FlareViewModel
 import com.flarehop.ui.MainScreen
 import com.flarehop.ui.theme.FlarehopTheme
@@ -24,8 +23,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             FlarehopTheme {
-                // Real Bluetooth only in test mode; development runs on sample data.
-                if (!DEVELOPMENT) StartBeacon()
+                StartBeacon()
                 val flare: FlareViewModel = viewModel()
                 MainScreen(flare)
             }

@@ -1,22 +1,23 @@
 package com.flarehop.ui
 
 import android.app.Application
-import android.os.BatteryManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.flarehop.flare.Flare
 import com.flarehop.flare.FlareEngine
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosDetails
+import com.flarehop.sense.BatteryWatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class FlareViewModel(application: Application) : AndroidViewModel(application) {
-    // DEVELOPMENT (MainScreen.kt) picks the engine: sample data, or Aayush's real Bluetooth engine.
-    val engine: FlareEngine = if (DEVELOPMENT) FakeEngine(viewModelScope) else Flare.engine
+    val engine: FlareEngine = Flare.engine
 
     val locationReader = LocationReader(application, viewModelScope)
+
+    val batteryWatcher = BatteryWatcher.forDevice(application, engine)
 
     private val roleStore = RoleStore(application)
 
@@ -28,6 +29,7 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         engine.setRole(_role.value)
+        batteryWatcher.start(viewModelScope)
     }
 
     // A rescuer phone sends a receipt for every SOS it hears (Contract 3, rule 2), which tells the
@@ -55,17 +57,8 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Without a GPS fix the SOS still goes out, and rescuers find it by signal strength alone.
-    // Nothing reports battery to the engine until the battery watcher in sense lands, so read
-    // it once here; otherwise the SOS would carry "battery unknown".
     fun sendSos(details: SosDetails) {
-        batteryPercent()?.let(engine::setBattery)
         engine.sendSos(details, locationReader.lastFix())
-    }
-
-    private fun batteryPercent(): Int? {
-        val manager = getApplication<Application>().getSystemService(BatteryManager::class.java)
-        val percent = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        return percent?.takeIf { it in 0..100 }
     }
 
     fun cancelSos() {
@@ -74,5 +67,6 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         locationReader.stop()
+        batteryWatcher.stop()
     }
 }

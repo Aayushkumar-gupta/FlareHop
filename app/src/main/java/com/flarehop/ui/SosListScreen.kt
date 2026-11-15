@@ -1,9 +1,5 @@
 package com.flarehop.ui
 
-import android.Manifest
-import android.bluetooth.BluetoothManager
-import android.content.Context
-import android.content.pm.PackageManager
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -13,7 +9,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -42,7 +37,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,7 +47,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SoundType
@@ -66,8 +59,6 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
-private enum class RadioState { READY, NO_PERMISSION, BLUETOOTH_OFF }
-
 private data class RescuerPosition(val latitude: Double, val longitude: Double)
 
 @Composable
@@ -78,16 +69,8 @@ fun SosListScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
     when {
         role != Role.RESCUER -> BecomeRescuer(onClick = flare::becomeRescuer, modifier = modifier)
 
-        radio == RadioState.NO_PERMISSION -> RadioProblem(
-            title = "Nearby devices is not allowed",
-            hint = "Allow Nearby devices for Flarehop in Settings, then reopen the app.",
-            onStop = flare::stopRescuing,
-            modifier = modifier,
-        )
-
-        radio == RadioState.BLUETOOTH_OFF -> RadioProblem(
-            title = "Bluetooth is off",
-            hint = "Turn on Bluetooth to hear SOS signals.",
+        radio != RadioState.READY -> RadioProblem(
+            state = radio,
             onStop = flare::stopRescuing,
             modifier = modifier,
         )
@@ -126,57 +109,40 @@ private fun BecomeRescuer(onClick: () -> Unit, modifier: Modifier) {
     }
 }
 
-
-
-
 @Composable
-private fun RadioProblem(title: String, hint: String, onStop: () -> Unit, modifier: Modifier) {
+private fun RadioProblem(state: RadioState, onStop: () -> Unit, modifier: Modifier) {
+    val text = radioProblemText(state) ?: return
+    val context = LocalContext.current
     Column(
         modifier = modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = title,
+            text = text.title,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.Center,
         )
-        Text(text = hint, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+        Text(
+            text = text.hint,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+        )
+        Button(
+            onClick = { openRadioSettings(context, state) },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+        ) {
+            Text(text = text.action, style = MaterialTheme.typography.titleMedium)
+        }
         TextButton(onClick = onStop) { Text("Stop being a rescuer") }
     }
 }
 
-
-
-
-
-// Bluetooth can be switched off or the permission revoked while the app is open, so recheck.
-@Composable
-private fun rememberRadioState(): RadioState {
-    val context = LocalContext.current
-    var state by remember { mutableStateOf(radioState(context)) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(RADIO_CHECK_MS)
-            state = radioState(context)
-        }
-    }
-    return state
-}
-
-private fun radioState(context: Context): RadioState {
-    if (DEVELOPMENT) return RadioState.READY
-    val canScan = ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) ==
-        PackageManager.PERMISSION_GRANTED
-    if (!canScan) return RadioState.NO_PERMISSION
-    val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
-    return if (adapter?.isEnabled == true) RadioState.READY else RadioState.BLUETOOTH_OFF
-}
-
 // "Heard 12 s ago" and the time part of the priority score only move if something redraws.
 @Composable
-private fun rememberNow(): Long {
+fun rememberNow(): Long {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -193,13 +159,7 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
     val gps by flare.locationReader.location.collectAsState()
     val now = rememberNow()
 
-    // Sample data sits around the demo point, so development measures from there.
-    val currentGps = gps
-    val here = when {
-        DEVELOPMENT -> RescuerPosition(DemoLocation.LATITUDE, DemoLocation.LONGITUDE)
-        currentGps != null -> RescuerPosition(currentGps.latitude, currentGps.longitude)
-        else -> null
-    }
+    val here = gps?.let { RescuerPosition(it.latitude, it.longitude) }
 
     // Contract 2: a changed SOS arrives with a new message ID, so show only the newest per victim.
     val newest = records
@@ -208,14 +168,9 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
     val active = newest.filter { !it.cancelled }
         .sortedWith(PriorityScore.mostUrgentFirst(now))
     val cancelled = newest.filter { it.cancelled }.sortedByDescending { it.lastHeardAt }
-    val bands = active.groupingBy { band(it, now) }.eachCount()
 
     Column(modifier.fillMaxSize()) {
-        DashboardHeader(
-            activeCount = active.size,
-            bands = bands,
-            onStop = flare::stopRescuing,
-        )
+        DashboardHeader(activeCount = active.size, onStop = flare::stopRescuing)
         if (newest.isEmpty()) {
             EmptyDashboard()
         } else {
@@ -235,12 +190,9 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
 }
 
 @Composable
-private fun DashboardHeader(activeCount: Int, bands: Map<PriorityBand, Int>, onStop: () -> Unit) {
+private fun DashboardHeader(activeCount: Int, onStop: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -262,11 +214,6 @@ private fun DashboardHeader(activeCount: Int, bands: Map<PriorityBand, Int>, onS
                 }
                 TextButton(onClick = onStop) { Text("Stop") }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PriorityBand.entries.forEach { band ->
-                    BandCount(band = band, count = bands[band] ?: 0, modifier = Modifier.weight(1f))
-                }
-            }
         }
     }
 }
@@ -285,28 +232,6 @@ private fun ListeningDot() {
             .alpha(pulse)
             .background(LISTENING_GREEN, CircleShape),
     )
-}
-
-@Composable
-private fun BandCount(band: PriorityBand, count: Int, modifier: Modifier) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface,
-        modifier = modifier,
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = "$count",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = bandColor(band),
-            )
-            Text(text = bandName(band), style = MaterialTheme.typography.labelMedium)
-        }
-    }
 }
 
 @Composable
@@ -358,14 +283,12 @@ private fun SosCard(record: SosRecord, rank: Int?, now: Long, here: RescuerPosit
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
-                FlagChips(record)
                 HorizontalDivider()
                 InfoRow("Sound", soundText(record))
                 InfoRow("Location", locationText(record, here))
                 InfoRow("Heard", heardText(record, now))
                 InfoRow("Battery", record.battery?.let { "$it%" } ?: "Unknown")
                 InfoRow("Signal", signalText(record.lastRssi))
-                InfoRow("Carrier", carrierText(record))
                 ReceiptLine(record)
             }
         }
@@ -410,31 +333,6 @@ private fun Pill(text: String, color: Color) {
 }
 
 @Composable
-private fun FlagChips(record: SosRecord) {
-    val flags = flags(record)
-    if (flags.isEmpty()) return
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        flags.forEach { flag ->
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.errorContainer,
-            ) {
-                Text(
-                    text = flag,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun InfoRow(label: String, value: String) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -447,14 +345,10 @@ private fun InfoRow(label: String, value: String) {
     }
 }
 
-// This screen only shows on a rescuer phone, and the engine sends a receipt for every SOS it
-// hears there. A rescuer never hears its own receipt, so acked here can only mean another
-// rescuer answered too.
 @Composable
 private fun ReceiptLine(record: SosRecord) {
     val (text, color) = when {
         record.cancelled -> "Cancelled by the victim" to MaterialTheme.colorScheme.onSurfaceVariant
-        record.acked -> "Receipt sent. Another rescuer answered too." to LISTENING_GREEN
         else -> "Receipt sent to the victim" to LISTENING_GREEN
     }
     Text(
@@ -482,19 +376,11 @@ private fun bandColor(band: PriorityBand): Color = when (band) {
     PriorityBand.NORMAL -> MaterialTheme.colorScheme.secondary
 }
 
-private fun peopleText(people: Int) = when (people) {
+fun peopleText(people: Int) = when (people) {
     0 -> "People not given"
     1 -> "1 person"
     else -> "$people people"
 }
-
-private fun flags(record: SosRecord) = listOfNotNull(
-    "Trapped".takeIf { record.trapped },
-    "Injured".takeIf { record.injured },
-    "Medical".takeIf { record.medical },
-    "Water rising".takeIf { record.water },
-    "Fire".takeIf { record.fire },
-)
 
 private fun soundText(record: SosRecord): String {
     val label = when (record.sound) {
@@ -544,7 +430,7 @@ private fun heardText(record: SosRecord, now: Long): String {
 }
 
 // Same scale as Find mode (Contract 6): -90 dBm or weaker is 0%, -40 dBm or stronger is 100%.
-private fun signalText(rssi: Int?): String {
+fun signalText(rssi: Int?): String {
     if (rssi == null) return "No reading"
     val percent = (((rssi + 90) / 50f).coerceIn(0f, 1f) * 100).roundToInt()
     val word = when {
@@ -555,24 +441,12 @@ private fun signalText(rssi: Int?): String {
     return "$rssi dBm, $word"
 }
 
-private fun carrierText(record: SosRecord): String {
-    val origin = phoneLabel(record.originId)
-    return if (record.carrierId == record.originId) {
-        "Victim's own phone $origin"
-    } else {
-        "Phone ${phoneLabel(record.carrierId)}, handed off from $origin"
-    }
-}
-
-private fun phoneLabel(id: Int) = String.format(Locale.US, "%04X", id)
-
 private val HEARD_AT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("d MMM, HH:mm", Locale.US).withZone(ZoneId.systemDefault())
 
 private val HIGH_ORANGE = Color(0xFFE65100)
 private val LISTENING_GREEN = Color(0xFF2E7D32)
 
-private const val RADIO_CHECK_MS = 2_000L
 private const val CLOCK_TICK_MS = 1_000L
 private const val PULSE_MS = 900
 private const val CANCELLED_ALPHA = 0.55f
