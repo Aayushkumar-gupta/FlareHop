@@ -38,8 +38,10 @@ class BatteryWatcher(
         job = null
     }
 
+    fun currentPercent(): Int? = overridePercent ?: readPercent()
+
     private fun push() {
-        val percent = overridePercent ?: readPercent() ?: return
+        val percent = currentPercent() ?: return
         engine.setBattery(percent)
     }
 

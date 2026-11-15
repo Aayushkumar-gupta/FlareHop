@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -15,22 +16,28 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.flarehop.R
 import com.flarehop.sense.BatteryWatcher
+import com.flarehop.sense.YamnetListener
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class FlareService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var advertiser: BleAdvertiser
     private lateinit var scanner: BleScanner
     private lateinit var battery: BatteryWatcher
+    private lateinit var listener: YamnetListener
+    private var soundJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
         advertiser = BleAdvertiser(this, Flare.engine)
         scanner = BleScanner(this, Flare.engine)
         battery = Flare.battery(this)
+        listener = YamnetListener(this, Flare.signsOfLife(this))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -44,6 +51,9 @@ class FlareService : Service() {
         if (granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
             types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         }
+        if (granted(Manifest.permission.RECORD_AUDIO)) {
+            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), types)
         battery.start(scope)
         advertiser.start(scope)
@@ -51,6 +61,13 @@ class FlareService : Service() {
             PackageManager.PERMISSION_GRANTED
         ) {
             scanner.start(scope)
+        }
+        if (soundJob == null) {
+            soundJob = scope.launch {
+                Flare.engine.mySos.collect { mine ->
+                    if (mine?.status == SosStatus.SENDING) startListening() else stopListening()
+                }
+            }
         }
         return START_NOT_STICKY
     }
@@ -66,9 +83,23 @@ class FlareService : Service() {
         ) {
             scanner.stop()
         }
+        stopListening()
         battery.stop()
         scope.cancel()
         super.onDestroy()
+    }
+
+    private fun startListening() {
+        if (Flare.listening.value || !granted(Manifest.permission.RECORD_AUDIO)) return
+        runCatching { listener.start(scope) }
+            .onSuccess { Flare.setListening(true) }
+            .onFailure { Log.w(TAG, "Sound listener did not start", it) }
+    }
+
+    private fun stopListening() {
+        if (!Flare.listening.value) return
+        listener.stop()
+        Flare.setListening(false)
     }
 
     private fun granted(permission: String): Boolean =
@@ -93,6 +124,7 @@ class FlareService : Service() {
     companion object {
         private const val CHANNEL_ID = "beacon"
         private const val NOTIFICATION_ID = 1
+        private const val TAG = "FlareService"
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, FlareService::class.java))

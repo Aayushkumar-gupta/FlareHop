@@ -1,11 +1,6 @@
 package com.flarehop.ui
 
-import android.Manifest
 import android.app.Application
-import android.content.pm.PackageManager
-import android.os.BatteryManager
-import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.flarehop.flare.Flare
@@ -13,9 +8,6 @@ import com.flarehop.flare.FlareEngine
 import com.flarehop.flare.LogEvent
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosDetails
-import com.flarehop.flare.SosStatus
-import com.flarehop.sense.SignsOfLife
-import com.flarehop.sense.YamnetListener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,8 +24,10 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
     // no matter which of the two last pushed a level.
     private val battery = Flare.battery(application)
 
-    val signs = SignsOfLife(engine, batteryPercent = { battery.overridePercent ?: realBattery() })
-    private val listener = YamnetListener(application, signs)
+    // The beacon service runs the microphone; screens share the same signs of life for the demo
+    // controls and the "Listening for sounds" line.
+    val signs = Flare.signsOfLife(application)
+    val listening: StateFlow<Boolean> = Flare.listening
 
     private val roleStore = RoleStore(application)
 
@@ -51,9 +45,6 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
     private val _events = MutableStateFlow<List<LogEvent>>(emptyList())
     val events: StateFlow<List<LogEvent>> = _events.asStateFlow()
 
-    private val _listening = MutableStateFlow(false)
-    val listening: StateFlow<Boolean> = _listening.asStateFlow()
-
     private val _batteryOverride = MutableStateFlow(battery.overridePercent)
     val batteryOverride: StateFlow<Int?> = _batteryOverride.asStateFlow()
 
@@ -70,12 +61,6 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             engine.log.collect { event ->
                 _events.value = (listOf(event) + _events.value).take(MAX_EVENTS)
-            }
-        }
-        // Contract 4: the listener runs on the phone that carries an SOS.
-        viewModelScope.launch {
-            engine.mySos.collect { mine ->
-                if (mine?.status == SosStatus.SENDING) startListening() else stopListening()
             }
         }
     }
@@ -143,38 +128,11 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
         engine.reset()
     }
 
-    // Without RECORD_AUDIO the SOS still goes out, only without signs of life.
-    private fun startListening() {
-        if (_listening.value) return
-        val canRecord = ContextCompat.checkSelfPermission(
-            getApplication(),
-            Manifest.permission.RECORD_AUDIO,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!canRecord) return
-        // The model or microphone can fail to open on some phones; the beacon must keep going.
-        runCatching { listener.start(viewModelScope) }
-            .onSuccess { _listening.value = true }
-            .onFailure { Log.w(TAG, "Sound listener did not start", it) }
-    }
-
-    private fun stopListening() {
-        if (!_listening.value) return
-        listener.stop()
-        _listening.value = false
-    }
-
-    private fun realBattery(): Int? = getApplication<Application>()
-        .getSystemService(BatteryManager::class.java)
-        ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        ?.takeIf { it in 0..100 }
-
     override fun onCleared() {
         locationReader.stop()
-        stopListening()
     }
 
     private companion object {
-        const val TAG = "FlareViewModel"
         const val MAX_EVENTS = 200
     }
 }
