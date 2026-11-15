@@ -31,7 +31,7 @@ Every part marked Done has been tried on real phones, except the handoff below 1
 
 ## Using the app
 
-The app has three tabs, in one dark theme on every phone: a night sea with stars, bronze trim and an ember-red beacon for SOS. Each status has a short line in that spirit ("Light the beacon", "A rescuer saw your fire") with the plain words right under it, so nobody in a real emergency has to guess.
+The app icon is a beacon torch sending signal waves, in bronze and ember on the same navy. The app always stays upright in portrait. The app has three tabs, in one dark theme on every phone: a night sea with stars, bronze trim and an ember-red beacon for SOS. Each status has a short line in that spirit ("Light the beacon", "A rescuer saw your fire") with the plain words right under it, so nobody in a real emergency has to guess.
 
 The tabs:
 
