@@ -43,7 +43,7 @@ fun MainScreen(flare: FlareViewModel) {
         when (role) {
             Role.RESCUER -> SosListScreen(engine = flare.engine, modifier = modifier)
             Role.NEARBY -> NearbyScreen(engine = flare.engine, modifier = modifier)
-            Role.VICTIM -> VictimScreen(engine = flare.engine, modifier = modifier)
+            Role.VICTIM -> VictimScreen(flare = flare, modifier = modifier)
         }
     }
 }

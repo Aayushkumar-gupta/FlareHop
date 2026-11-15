@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.flarehop.flare.FlareEngine
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SoundType
+import com.flarehop.sense.PriorityScore
 import java.util.Locale
 
 @Composable
@@ -30,7 +31,7 @@ fun SosListScreen(engine: FlareEngine, modifier: Modifier = Modifier) {
     val shown = records
         .groupBy { it.originId }
         .map { (_, copies) -> copies.maxBy { it.firstHeardAt } }
-        .sortedBy { it.firstHeardAt }
+        .sortedWith(PriorityScore.mostUrgentFirst(System.currentTimeMillis()))
 
     Column(modifier.fillMaxSize().padding(16.dp)) {
         Text(
@@ -79,11 +80,14 @@ private fun SosCard(record: SosRecord) {
                 style = MaterialTheme.typography.bodyLarge,
             )
             Text(carrierText(record), style = MaterialTheme.typography.bodyMedium)
+            // This screen only shows on a rescuer phone, and the engine sends a receipt for every
+            // SOS it hears there. A rescuer never hears its own receipt, so acked here can only
+            // mean another rescuer answered too.
             Text(
                 text = when {
                     record.cancelled -> "Cancelled by the victim"
-                    record.acked -> "Receipt sent"
-                    else -> "No receipt yet"
+                    record.acked -> "Receipt sent. Another rescuer answered too."
+                    else -> "Receipt sent"
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
