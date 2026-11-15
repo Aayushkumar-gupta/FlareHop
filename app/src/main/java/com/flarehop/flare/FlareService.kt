@@ -65,8 +65,14 @@ class FlareService : Service() {
         }
         if (soundJob == null) {
             soundJob = scope.launch {
+                var alerted: Long? = null
                 Flare.engine.mySos.collect { mine ->
                     if (mine?.status == SosStatus.SENDING) startListening() else stopListening()
+                    // Once per SOS another phone started, however often the record changes after.
+                    if (mine?.startedBy != null && mine.record.messageId != alerted) {
+                        alerted = mine.record.messageId
+                        WakeNotice.showStartedRemotely(this@FlareService)
+                    }
                 }
             }
         }

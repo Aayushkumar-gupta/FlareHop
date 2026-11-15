@@ -114,6 +114,19 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
         engine.sendSos(details, locationReader.lastFix())
     }
 
+    fun startSosOn(phoneId: Int) {
+        engine.startSosOn(phoneId)
+    }
+
+    fun stopSosOn(phoneId: Int) {
+        engine.stopSosOn(phoneId)
+    }
+
+    fun markRescued(messageId: Long) {
+        engine.markRescued(messageId)
+        _findTarget.value = null
+    }
+
     fun cancelSos() {
         engine.cancelSos()
     }

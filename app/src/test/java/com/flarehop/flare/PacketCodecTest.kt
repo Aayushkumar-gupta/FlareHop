@@ -112,7 +112,8 @@ class PacketCodecTest {
     @Test
     fun unknownStatusBitsAreIgnored() {
         val bytes = PacketCodec.encode(sos)
-        bytes[21] = 0x7F
+        // Bit 6 is "started by another phone"; the six below it are still unused.
+        bytes[21] = 0x3F
         assertEquals(details, (decoded(bytes) as SosPacket).details)
     }
 
@@ -177,8 +178,8 @@ class PacketCodecTest {
     @Test
     fun dropsUnknownType() {
         val bytes = PacketCodec.encode(sos)
-        bytes[0] = 0x25
-        assertEquals("type 5", dropReason(bytes))
+        bytes[0] = 0x27
+        assertEquals("type 7", dropReason(bytes))
     }
 
     @Test
@@ -233,5 +234,41 @@ class PacketCodecTest {
         assertEquals(120, roundTrip(150))
         assertEquals(600, roundTrip(630))
         assertEquals(136 * 60, roundTrip(100_000))
+    }
+
+    @Test
+    fun aRequestToStartRoundTripsAsType5() {
+        val call = CallPacket(callId = 0xCAFEF00DL, rescuerId = 0x5E6F, targetId = 0x3C4D)
+        val bytes = PacketCodec.encode(call)
+        assertEquals(0x25, u8(bytes, 0))
+        assertEquals(call, decoded(bytes))
+    }
+
+    @Test
+    fun aRequestWithNoTargetIsDropped() {
+        val bytes = PacketCodec.encode(CallPacket(callId = 7L, rescuerId = 0x5E6F, targetId = 0))
+        assertEquals("zero id", dropReason(bytes))
+    }
+
+    @Test
+    fun startedByAnotherPhoneTravelsInTheStatusBits() {
+        val started = sos.copy(details = details.copy(startedRemotely = true))
+        val bytes = PacketCodec.encode(started)
+        assertEquals(started, decoded(bytes))
+        assertEquals(details, (decoded(PacketCodec.encode(sos)) as SosPacket).details)
+    }
+
+    @Test
+    fun aRequestToStopKeepsItsFlag() {
+        val stop = CallPacket(callId = 0x1234L, rescuerId = 0x5E6F, targetId = 0x3C4D, stop = true)
+        assertEquals(stop, decoded(PacketCodec.encode(stop)))
+    }
+
+    @Test
+    fun rescuedRoundTripsAsType6() {
+        val rescued = RescuedPacket(messageId = 0xDEADBEEFL, originId = 0x1234, rescuerId = 0x5E6F)
+        val bytes = PacketCodec.encode(rescued)
+        assertEquals(0x26, u8(bytes, 0))
+        assertEquals(rescued, decoded(bytes))
     }
 }

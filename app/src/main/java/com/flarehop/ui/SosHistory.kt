@@ -13,7 +13,7 @@ data class CarrierSeen(
     val lastHeardAt: Long,
 )
 
-enum class HistoryKind { FIRST_HEARD, CARRIER, SOUND, POSITION, BATTERY, CANCELLED }
+enum class HistoryKind { FIRST_HEARD, CARRIER, SOUND, POSITION, BATTERY, CANCELLED, RESCUED }
 
 data class HistoryEntry(val atMs: Long, val kind: HistoryKind, val text: String)
 
@@ -95,6 +95,8 @@ class SosHistory {
                 ?.let { entry(HistoryKind.BATTERY, "Battery ${it.battery}%") },
             now.takeIf { it.cancelled && !before.cancelled }
                 ?.let { entry(HistoryKind.CANCELLED, "Cancelled by the victim") },
+            now.takeIf { it.rescued && !before.rescued }
+                ?.let { entry(HistoryKind.RESCUED, "Marked as rescued") },
         )
     }
 

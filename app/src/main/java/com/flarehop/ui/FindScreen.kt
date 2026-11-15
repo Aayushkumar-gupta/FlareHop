@@ -20,10 +20,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -152,6 +156,7 @@ fun FindScreen(flare: FlareViewModel, messageId: Long, modifier: Modifier = Modi
     val tracker = remember(messageId) { FindTracker() }
     var reading by remember(messageId) { mutableStateOf<FindReading?>(null) }
     val now = rememberNow()
+    var confirmRescued by remember(messageId) { mutableStateOf(false) }
 
     LaunchedEffect(messageId) {
         flare.engine.directSignal.collect { signal ->
@@ -223,6 +228,37 @@ fun FindScreen(flare: FlareViewModel, messageId: Long, modifier: Modifier = Modi
                 item { SectionTitle("Latest") }
                 items(history.takeLast(HISTORY_SHOWN).asReversed()) { HistoryRow(it) }
             }
+        }
+        // Reached the person: their phone stops calling for help and every rescuer sees it.
+        if (record != null && !record.rescued) {
+            Button(
+                onClick = { confirmRescued = true },
+                colors = ButtonDefaults.buttonColors(containerColor = RESCUED_GREEN),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(56.dp),
+            ) {
+                Text(text = "Mark as rescued", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+        if (confirmRescued && record != null) {
+            AlertDialog(
+                onDismissRequest = { confirmRescued = false },
+                title = { Text("Mark ${names.survivorWithCode(record.originId)} as rescued?") },
+                text = {
+                    Text(
+                        "Their phone stops calling for help, and every rescuer nearby sees " +
+                            "them as rescued. Only do this once you have reached them.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmRescued = false
+                        flare.markRescued(messageId)
+                    }) { Text("Mark as rescued") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmRescued = false }) { Text("Not yet") }
+                },
+            )
         }
         OutlinedButton(
             onClick = flare::stopFinding,
@@ -382,6 +418,7 @@ private fun Beeper(intervalMs: Long?) {
     }
 }
 
+private val RESCUED_GREEN = Color(0xFF2E7D32)
 private val HISTORY_TIME: DateTimeFormatter =
     DateTimeFormatter.ofPattern("HH:mm", Locale.US).withZone(ZoneId.systemDefault())
 

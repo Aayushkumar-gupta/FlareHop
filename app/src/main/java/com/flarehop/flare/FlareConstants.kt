@@ -9,6 +9,8 @@ object FlareConstants {
     const val TYPE_RECEIPT = 2
     const val TYPE_STANDBY = 3
     const val TYPE_HANDOFF = 4
+    const val TYPE_CALL = 5
+    const val TYPE_RESCUED = 6
 
     // A missing fix is sent as Int.MIN_VALUE, never 0,0, which is a real place in the ocean.
     const val NO_FIX = Int.MIN_VALUE
@@ -23,6 +25,17 @@ object FlareConstants {
     const val STANDBY_INTERVAL_MS = 5_000L
     const val HANDOFF_RETRY_MS = 30_000L
     const val CANCEL_ADVERT_MS = 10_000L
+
+    // How long a rescuer keeps asking a phone to start its SOS before giving up.
+    const val CALL_ADVERT_MS = 10_000L
+
+    // How long a rescuer keeps announcing that it reached someone, so carriers and other
+    // rescuers in range hear it.
+    const val RESCUED_ADVERT_MS = 30_000L
+
+    // After being marked rescued, how long the person has to say they are fine before their
+    // phone assumes they still need help and calls again.
+    const val RESCUE_CONFIRM_MS = 45_000L
     const val RECEIPT_KEEP_MS = 15_000L
     const val LOW_POWER_BATTERY_PERCENT = 30
     const val ADVERT_ROTATION_MS = 300L
