@@ -1,6 +1,7 @@
 package com.flarehop.ui
 
 import android.content.Context
+import androidx.core.content.edit
 import com.flarehop.flare.Role
 
 class RoleStore(context: Context) {
@@ -13,7 +14,7 @@ class RoleStore(context: Context) {
     }
 
     fun save(role: Role) {
-        prefs.edit().putString(KEY_ROLE, role.name).apply()
+        prefs.edit { putString(KEY_ROLE, role.name) }
     }
 
     private companion object {
