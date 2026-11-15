@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,6 +36,7 @@ import com.flarehop.flare.FlareEngine
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SoundType
+import com.flarehop.sense.PriorityBand
 import com.flarehop.sense.PriorityScore
 import java.time.Instant
 import java.time.ZoneId
@@ -166,18 +168,20 @@ private fun SosList(engine: FlareEngine, modifier: Modifier) {
 
 @Composable
 private fun SosCard(record: SosRecord) {
+    val band = PriorityScore.band(PriorityScore.score(record, System.currentTimeMillis()))
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            // The packet has no timestamp field (Contract 1), so the time shown is when this phone
-            // first heard the SOS, which is within seconds of sending while the victim is in range.
             Text(
-                text = "SOS heard ${HEARD_AT.format(Instant.ofEpochMilli(record.firstHeardAt))}",
+                text = bandLabel(band),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = bandColor(band),
+            )
+            Text(
+                text = peopleText(record.people),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
-            if (record.people > 0) {
-                Text(peopleText(record.people), style = MaterialTheme.typography.titleMedium)
-            }
             val flags = flagsText(record)
             if (flags.isNotEmpty()) {
                 Text(
@@ -188,6 +192,12 @@ private fun SosCard(record: SosRecord) {
                 )
             }
             Text(soundText(record), style = MaterialTheme.typography.bodyLarge)
+            // The packet has no timestamp field (Contract 1), so the time shown is when this phone
+            // first heard the SOS, which is within seconds of sending while the victim is in range.
+            Text(
+                text = "Heard ${HEARD_AT.format(Instant.ofEpochMilli(record.firstHeardAt))}",
+                style = MaterialTheme.typography.bodyLarge,
+            )
             Text(fixText(record), style = MaterialTheme.typography.bodyLarge)
             Text(
                 text = "Battery ${record.battery?.let { "$it%" } ?: "unknown"} · " +
@@ -210,7 +220,27 @@ private fun SosCard(record: SosRecord) {
     }
 }
 
-private fun peopleText(people: Int) = if (people == 1) "1 person" else "$people people"
+private fun peopleText(people: Int) = when (people) {
+    0 -> "People: not given"
+    1 -> "1 person"
+    else -> "$people people"
+}
+
+private fun bandLabel(band: PriorityBand) = when (band) {
+    PriorityBand.CRITICAL -> "CRITICAL"
+    PriorityBand.HIGH -> "HIGH"
+    PriorityBand.NORMAL -> "NORMAL"
+}
+
+// Contract 5 colours: Critical red, High orange, Normal plain.
+@Composable
+private fun bandColor(band: PriorityBand): Color = when (band) {
+    PriorityBand.CRITICAL -> MaterialTheme.colorScheme.error
+    PriorityBand.HIGH -> HIGH_ORANGE
+    PriorityBand.NORMAL -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+private val HIGH_ORANGE = Color(0xFFE65100)
 
 private val HEARD_AT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("d MMM, HH:mm", Locale.US).withZone(ZoneId.systemDefault())

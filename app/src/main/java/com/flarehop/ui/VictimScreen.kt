@@ -18,11 +18,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.flarehop.flare.SosDetails
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SosStatus
 import java.util.Locale
@@ -120,7 +125,7 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error,
                 )
-                ConnectedPeople(count = blips.size)
+                NearbyPeople(count = blips.size)
             }
             if (statusText != null) {
                 Text(text = statusText, style = MaterialTheme.typography.headlineSmall)
@@ -135,21 +140,7 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (mySos == null) {
-                Button(
-                    onClick = { flare.sendSos() },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError,
-                    ),
-                    modifier = Modifier.fillMaxWidth().height(72.dp),
-                ) {
-                    Text(text = "Send SOS", style = MaterialTheme.typography.headlineSmall)
-                }
-                Text(
-                    text = "Sends your location, the time and your battery level.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                )
+                SosPanel(onSend = flare::sendSos)
             } else {
                 OutlinedButton(
                     onClick = { flare.cancelSos() },
@@ -177,13 +168,103 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ConnectedPeople(count: Int) {
+private fun SosPanel(onSend: (SosDetails) -> Unit) {
+    var people by rememberSaveable { mutableIntStateOf(1) }
+    var injured by rememberSaveable { mutableStateOf(false) }
+    var trapped by rememberSaveable { mutableStateOf(false) }
+    var medical by rememberSaveable { mutableStateOf(false) }
+    var water by rememberSaveable { mutableStateOf(false) }
+    var fire by rememberSaveable { mutableStateOf(false) }
+
+    // Slightly see-through so the radar behind it stays visible.
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(onClick = { people-- }, enabled = people > 1) {
+                    Text(text = "-", style = MaterialTheme.typography.titleLarge)
+                }
+                Text(
+                    text = if (people == 1) "1 person" else "$people people",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(onClick = { people++ }, enabled = people < MAX_PEOPLE) {
+                    Text(text = "+", style = MaterialTheme.typography.titleLarge)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Toggle("Injured", injured, { injured = it }, Modifier.weight(1f))
+                Toggle("Trapped", trapped, { trapped = it }, Modifier.weight(1f))
+                Toggle("Medical", medical, { medical = it }, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Toggle("Water rising", water, { water = it }, Modifier.weight(1f))
+                Toggle("Fire", fire, { fire = it }, Modifier.weight(1f))
+            }
+            Button(
+                onClick = {
+                    onSend(
+                        SosDetails(
+                            people = people,
+                            injured = injured,
+                            trapped = trapped,
+                            water = water,
+                            medical = medical,
+                            fire = fire,
+                        ),
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+                modifier = Modifier.fillMaxWidth().height(72.dp),
+            ) {
+                Text(text = "Send SOS", style = MaterialTheme.typography.headlineSmall)
+            }
+            Text(
+                text = "Also sends your location and battery level.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun Toggle(label: String, on: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier) {
+    if (on) {
+        Button(onClick = { onChange(false) }, modifier = modifier) { Text(label) }
+    } else {
+        OutlinedButton(onClick = { onChange(true) }, modifier = modifier) { Text(label) }
+    }
+}
+
+// Contract 1 packs people into 4 bits, so 15 is the most a packet can carry.
+private const val MAX_PEOPLE = 15
+
+// The plan says nothing pairs or connects, so the count is of phones heard nearby.
+@Composable
+private fun NearbyPeople(count: Int) {
     Column(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            text = "$count connected",
+            text = "$count nearby",
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Bold,
         )

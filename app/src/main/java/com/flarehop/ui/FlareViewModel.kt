@@ -51,9 +51,9 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
     // Without a GPS fix the SOS still goes out, and rescuers find it by signal strength alone.
     // Nothing reports battery to the engine until the battery watcher in sense lands, so read
     // it once here; otherwise the SOS would carry "battery unknown".
-    fun sendSos() {
+    fun sendSos(details: SosDetails) {
         batteryPercent()?.let(engine::setBattery)
-        engine.sendSos(NO_DETAILS, locationReader.lastFix())
+        engine.sendSos(details, locationReader.lastFix())
     }
 
     private fun batteryPercent(): Int? {
@@ -70,13 +70,3 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
         locationReader.stop()
     }
 }
-
-// The SOS screen no longer asks for people or conditions; 0 people means "not given" (Contract 2).
-private val NO_DETAILS = SosDetails(
-    people = 0,
-    injured = false,
-    trapped = false,
-    water = false,
-    medical = false,
-    fire = false,
-)
