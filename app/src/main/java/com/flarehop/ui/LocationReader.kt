@@ -106,6 +106,14 @@ class LocationReader(private val context: Context, scope: CoroutineScope) {
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 }
 
+// The rescuer's own position in the form the location estimate takes.
+fun Location.toGpsFix(): GpsFix = GpsFix(
+    latitude = latitude,
+    longitude = longitude,
+    accuracyM = if (hasAccuracy()) accuracy.toDouble() else null,
+    ageMin = ((System.currentTimeMillis() - time) / MS_PER_MIN).toInt().coerceAtLeast(0),
+)
+
 private const val UPDATE_MS = 5_000L
 private const val STALE_MS = 120_000L
 private const val PERMISSION_CHECK_MS = 2_000L

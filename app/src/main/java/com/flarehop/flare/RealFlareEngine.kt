@@ -51,7 +51,9 @@ class RealFlareEngine(
     private var battery: Int? = null
     private var sound = SoundType.NONE
     private var soundAtMs = 0L
-    private var sentAtMs = 0L
+
+    // When this phone's own position was last set; the fix age in each SOS counts from here.
+    private var fixAtMs = 0L
     private val records = LinkedHashMap<Long, SosRecord>()
     private val receipts = LinkedHashMap<Long, ReceiptPacket>()
     private var cancel: HandoffPacket? = null
@@ -119,7 +121,7 @@ class RealFlareEngine(
                 acked = false,
                 cancelled = false,
             )
-            sentAtMs = now
+            fixAtMs = now
             cancel = null
             mySosState.value = MySos(record, SosStatus.SENDING)
         }
@@ -149,6 +151,23 @@ class RealFlareEngine(
         synchronized(lock) {
             battery = percent.coerceIn(0, 100)
             updateMyRecord { it.copy(battery = battery) }
+        }
+    }
+
+    // GPS often has no fix yet when SOS is tapped, so a fix that arrives later still reaches
+    // every phone, under the same SOS.
+    override fun setFix(fix: Fix) {
+        synchronized(lock) {
+            if (mySosState.value == null) return
+            fixAtMs = clock()
+            updateMyRecord {
+                it.copy(
+                    latitude = fix.latitude,
+                    longitude = fix.longitude,
+                    accuracyM = fix.accuracyM,
+                    fixAgeMin = fix.fixAgeMin,
+                )
+            }
         }
     }
 
@@ -194,7 +213,7 @@ class RealFlareEngine(
             phoneId = newPhoneId()
             sound = SoundType.NONE
             soundAtMs = 0L
-            sentAtMs = 0L
+            fixAtMs = 0L
             records.clear()
             receipts.clear()
             neighbours.clear()
@@ -466,7 +485,7 @@ class RealFlareEngine(
         latitude = record.latitude,
         longitude = record.longitude,
         accuracyM = record.accuracyM,
-        fixAgeMin = record.fixAgeMin?.plus(minutesBetween(sentAtMs, now)),
+        fixAgeMin = record.fixAgeMin?.plus(minutesBetween(fixAtMs, now)),
         details = SosDetails(
             people = record.people,
             injured = record.injured,
