@@ -16,6 +16,7 @@ class DashboardRankingTest {
         firstHeardAt: Long = heardAt,
         messageId: Long = origin.toLong(),
         cancelled: Boolean = false,
+        rescued: Boolean = false,
     ) = SosRecord(
         messageId = messageId,
         originId = origin,
@@ -38,6 +39,7 @@ class DashboardRankingTest {
         lastRssi = -60,
         acked = false,
         cancelled = cancelled,
+        rescued = rescued,
     )
 
     @Test
@@ -84,5 +86,14 @@ class DashboardRankingTest {
         val ranking = rankForDashboard(listOf(first, second), now)
         assertEquals(listOf(99L), ranking.active.map { it.messageId })
         assertTrue(ranking.stale.isEmpty())
+    }
+
+    @Test
+    fun aRescuedSosGoesLastInItsOwnGroup() {
+        val rescued = sos(1, rescued = true)
+        val ranking = rankForDashboard(listOf(rescued, sos(2)), now)
+        assertEquals(listOf(2), ranking.active.map { it.originId })
+        assertEquals(listOf(1), ranking.rescued.map { it.originId })
+        assertTrue(ranking.cancelled.isEmpty())
     }
 }

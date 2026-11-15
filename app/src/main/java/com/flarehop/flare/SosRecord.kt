@@ -9,6 +9,8 @@ data class SosDetails(
     val water: Boolean,
     val medical: Boolean,
     val fire: Boolean,
+    // Started because another phone asked this one to, not by its owner tapping SOS.
+    val startedRemotely: Boolean = false,
 )
 
 data class Fix(
@@ -40,4 +42,7 @@ data class SosRecord(
     val lastRssi: Int?,
     val acked: Boolean,
     val cancelled: Boolean,
+    val startedRemotely: Boolean = false,
+    // A rescuer reached this person and said so; the SOS no longer needs carrying.
+    val rescued: Boolean = false,
 )

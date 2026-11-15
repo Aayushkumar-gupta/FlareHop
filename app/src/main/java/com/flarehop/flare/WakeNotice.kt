@@ -38,4 +38,36 @@ object WakeNotice {
             .build()
         manager.notify(NOTIFICATION_ID, notice)
     }
+
+    // Another phone started this phone's SOS: its owner may not be looking, so it rings and
+    // buzzes, and one tap opens the app where they can cancel it if they are safe.
+    fun showStartedRemotely(context: Context) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val manager = NotificationManagerCompat.from(context)
+        manager.createNotificationChannel(
+            NotificationChannelCompat
+                .Builder(STARTED_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_HIGH)
+                .setName(context.getString(R.string.started_channel_name))
+                .setVibrationEnabled(true)
+                .setVibrationPattern(BUZZ)
+                .build(),
+        )
+        val notice = NotificationCompat.Builder(context, STARTED_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setContentTitle(context.getString(R.string.started_notification_title))
+            .setContentText(context.getString(R.string.started_notification_text))
+            .setContentIntent(FlareService.openApp(context))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        manager.notify(STARTED_NOTIFICATION_ID, notice)
+    }
+
+    private const val STARTED_CHANNEL_ID = "sos_started"
+    private const val STARTED_NOTIFICATION_ID = 3
+    private val BUZZ = longArrayOf(0L, 600L, 300L, 600L, 300L, 600L)
 }

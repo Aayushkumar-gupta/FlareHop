@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.flarehop.flare.GroupMember
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SoundType
@@ -158,16 +161,23 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
     val records by flare.engine.knownSos.collectAsState()
     val gps by flare.locationReader.location.collectAsState()
     val names by flare.names.collectAsState()
+    val group by flare.engine.group.collectAsState()
+    val calling by flare.engine.pendingCalls.collectAsState()
     val now = rememberNow()
 
     val here = gps?.let { Position(it.latitude, it.longitude) }
 
-    val (active, stale, cancelled) = rankForDashboard(records, now)
-    val newest = active + stale + cancelled
+    val (active, stale, cancelled, rescued) = rankForDashboard(records, now)
+    val newest = active + stale + cancelled + rescued
+    val quiet = phonesWithoutSos(group, records)
+
+    // An SOS that another phone started can be stopped from here; one its owner tapped cannot.
+    fun stopFor(record: SosRecord): (() -> Unit)? =
+        if (record.startedRemotely) ({ flare.stopSosOn(record.originId) }) else null
 
     Column(modifier.fillMaxSize()) {
         DashboardHeader(activeCount = active.size, onStop = flare::stopRescuing)
-        if (newest.isEmpty()) {
+        if (newest.isEmpty() && quiet.isEmpty()) {
             EmptyDashboard()
         } else {
             LazyColumn(
@@ -182,6 +192,8 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
                         now = now,
                         here = here,
                         onFind = { flare.find(record.messageId) },
+                        onStop = stopFor(record),
+                        stopping = record.originId in calling,
                     )
                 }
                 // Still trackable: the last position and carrier may lead to the victim.
@@ -193,9 +205,40 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
                         now = now,
                         here = here,
                         onFind = { flare.find(record.messageId) },
+                        onStop = stopFor(record),
+                        stopping = record.originId in calling,
                     )
                 }
+                // Every phone in the network that is not calling for help, so a rescuer can start
+                // one: someone trapped with the victim who never tapped SOS.
+                if (quiet.isNotEmpty()) {
+                    item(key = "quiet-title") {
+                        Text(
+                            text = "Phones without an SOS",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                    items(quiet, key = { "quiet-${it.phoneId}" }) { member ->
+                        QuietPhoneRow(
+                            member = member,
+                            name = names.phoneWithCode(member.phoneId),
+                            calling = member.phoneId in calling,
+                            onStart = { flare.startSosOn(member.phoneId) },
+                        )
+                    }
+                }
                 itemsIndexed(cancelled, key = { _, it -> it.originId }) { _, record ->
+                    SosCard(
+                        record = record,
+                        names = names,
+                        rank = null,
+                        now = now,
+                        here = here,
+                        onFind = null,
+                    )
+                }
+                itemsIndexed(rescued, key = { _, it -> it.originId }) { _, record ->
                     SosCard(
                         record = record,
                         names = names,
@@ -256,6 +299,37 @@ private fun ListeningDot() {
 }
 
 @Composable
+private fun QuietPhoneRow(
+    member: GroupMember,
+    name: String,
+    calling: Boolean,
+    onStart: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(text = name, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = listOfNotNull(
+                    member.battery?.let { "$it%" },
+                    member.rssi?.let {
+                        "about ${distanceText(LocationEstimator.bluetooth(it).distanceM)}"
+                    },
+                ).joinToString(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedButton(onClick = onStart, enabled = !calling) {
+            Text(if (calling) "Starting..." else "Start SOS")
+        }
+    }
+}
+
+@Composable
 private fun EmptyDashboard() {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -285,9 +359,11 @@ private fun SosCard(
     now: Long,
     here: Position?,
     onFind: (() -> Unit)?,
+    onStop: (() -> Unit)? = null,
+    stopping: Boolean = false,
 ) {
     val band = band(record, now)
-    val dimmed = record.cancelled || isStale(record, now)
+    val dimmed = record.cancelled || record.rescued || isStale(record, now)
     val stripe = if (dimmed) MaterialTheme.colorScheme.outline else bandColor(band)
     Card(
         modifier = Modifier
@@ -319,6 +395,13 @@ private fun SosCard(
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
+                if (record.startedRemotely) {
+                    Text(
+                        text = "Started by another phone",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 HorizontalDivider()
                 InfoRow("Sound", soundText(record, now))
                 InfoRow("Location", locationText(record, here))
@@ -327,6 +410,15 @@ private fun SosCard(
                 if (onFind != null) {
                     Button(onClick = onFind, modifier = Modifier.fillMaxWidth().height(56.dp)) {
                         Text(text = "Track", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+                if (onStop != null) {
+                    OutlinedButton(
+                        onClick = onStop,
+                        enabled = !stopping,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Text(if (stopping) "Stopping..." else "Stop SOS")
                     }
                 }
             }
@@ -341,7 +433,9 @@ private fun CardTop(record: SosRecord, band: PriorityBand, rank: Int?, stale: Bo
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (record.cancelled) {
+        if (record.rescued) {
+            Pill(text = "RESCUED", color = LISTENING_GREEN)
+        } else if (record.cancelled) {
             Pill(text = "CANCELLED", color = MaterialTheme.colorScheme.outline)
         } else if (stale) {
             Pill(text = "NOT HEARD", color = MaterialTheme.colorScheme.outline)
@@ -472,6 +566,7 @@ data class DashboardRanking(
     val active: List<SosRecord>,
     val stale: List<SosRecord>,
     val cancelled: List<SosRecord>,
+    val rescued: List<SosRecord>,
 )
 
 // An SOS not heard for this long is out of range or its phone is off. It stays on the list,
@@ -483,17 +578,27 @@ fun isStale(record: SosRecord, now: Long): Boolean = now - record.lastHeardAt >=
 
 // Contract 2: a changed SOS arrives with a new message ID, so only the newest per victim is
 // kept. Live ones are ranked by Contract 5; then the ones not heard lately, then cancelled ones,
-// each most recently heard first.
+// then the ones a rescuer reached, each most recently heard first.
 fun rankForDashboard(records: List<SosRecord>, now: Long): DashboardRanking {
     val newest = records
         .groupBy { it.originId }
         .map { (_, copies) -> copies.maxBy { it.firstHeardAt } }
-    val open = newest.filter { !it.cancelled }
+    val open = newest.filter { !it.cancelled && !it.rescued }
     return DashboardRanking(
         active = open.filter { !isStale(it, now) }.sortedWith(PriorityScore.mostUrgentFirst(now)),
         stale = open.filter { isStale(it, now) }.sortedByDescending { it.lastHeardAt },
-        cancelled = newest.filter { it.cancelled }.sortedByDescending { it.lastHeardAt },
+        cancelled = newest.filter {
+            it.cancelled && !it.rescued
+        }.sortedByDescending { it.lastHeardAt },
+        rescued = newest.filter { it.rescued }.sortedByDescending { it.lastHeardAt },
     )
+}
+
+// Phones this rescuer hears in the network that are not sending an SOS of their own, so a
+// rescuer can start one; a phone whose SOS was cancelled can be started again.
+fun phonesWithoutSos(group: List<GroupMember>, records: List<SosRecord>): List<GroupMember> {
+    val sending = records.filter { !it.cancelled }.map { it.originId }.toSet()
+    return group.filter { it.phoneId !in sending }.sortedBy { it.phoneId }
 }
 
 fun phoneLabel(id: Int): String = String.format(Locale.US, "%04X", id)

@@ -157,4 +157,11 @@ class MeshGraphTest {
         assertEquals(0f, slots[2].first, 0.001f)
         assertEquals(1f, slots[2].second, 0.001f)
     }
+
+    @Test
+    fun phonesWithoutAnSosAreTheOnesThatCanBeStarted() {
+        val group = listOf(member(rescuer), member(victim), member(carrier))
+        val records = listOf(sos(), sos(origin = rescuer, cancelled = true, messageId = 8L))
+        assertEquals(listOf(carrier, rescuer), phonesWithoutSos(group, records).map { it.phoneId })
+    }
 }

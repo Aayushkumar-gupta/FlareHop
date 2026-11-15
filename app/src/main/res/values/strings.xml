@@ -6,4 +6,7 @@
     <string name="wake_channel_name">SOS nearby</string>
     <string name="wake_notification_title">SOS nearby</string>
     <string name="wake_notification_text">Tap to help carry it to a rescuer</string>
+    <string name="started_channel_name">SOS started by another phone</string>
+    <string name="started_notification_title">Your SOS was started by a phone nearby</string>
+    <string name="started_notification_text">Your phone is calling for help so rescuers can find you. If you are safe, open Flarehop and cancel it.</string>
 </resources>

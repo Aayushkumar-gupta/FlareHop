@@ -4,8 +4,10 @@ import com.flarehop.flare.FlareConstants.BYTE_CAP
 import com.flarehop.flare.FlareConstants.NO_FIX
 import com.flarehop.flare.FlareConstants.PACKET_SIZE
 import com.flarehop.flare.FlareConstants.PROTOCOL_VERSION
+import com.flarehop.flare.FlareConstants.TYPE_CALL
 import com.flarehop.flare.FlareConstants.TYPE_HANDOFF
 import com.flarehop.flare.FlareConstants.TYPE_RECEIPT
+import com.flarehop.flare.FlareConstants.TYPE_RESCUED
 import com.flarehop.flare.FlareConstants.TYPE_SOS
 import com.flarehop.flare.FlareConstants.TYPE_STANDBY
 import com.flarehop.flare.FlareConstants.UNKNOWN_BYTE
@@ -45,6 +47,17 @@ data class HandoffPacket(
     val successorId: Int,
     val battery: Int?,
 ) : Packet
+
+// A rescuer asking one phone, by its ID, to start its own SOS, or to stop one it was asked to start.
+data class CallPacket(
+    val callId: Long,
+    val rescuerId: Int,
+    val targetId: Int,
+    val stop: Boolean = false,
+) : Packet
+
+// A rescuer telling everyone in range that it reached the person behind this SOS.
+data class RescuedPacket(val messageId: Long, val originId: Int, val rescuerId: Int) : Packet
 
 sealed interface Decoded {
     data class Ok(val packet: Packet) : Decoded
@@ -101,6 +114,22 @@ object PacketCodec {
                 buf.putShort(10, packet.successorId.toShort())
                 buf.put(22, batteryByte(packet.battery))
             }
+
+            is CallPacket -> {
+                buf.put(0, header(TYPE_CALL))
+                buf.putInt(1, packet.callId.toInt())
+                buf.putShort(5, packet.rescuerId.toShort())
+                buf.putShort(7, packet.rescuerId.toShort())
+                buf.put(9, (if (packet.stop) 1 else 0).toByte())
+                buf.putShort(10, packet.targetId.toShort())
+            }
+
+            is RescuedPacket -> {
+                buf.put(0, header(TYPE_RESCUED))
+                buf.putInt(1, packet.messageId.toInt())
+                buf.putShort(5, packet.originId.toShort())
+                buf.putShort(7, packet.rescuerId.toShort())
+            }
         }
         return buf.array()
     }
@@ -141,6 +170,23 @@ object PacketCodec {
                 ),
             )
 
+            TYPE_CALL -> Decoded.Ok(
+                CallPacket(
+                    callId = u32(buf, 1),
+                    rescuerId = u16(buf, 5),
+                    targetId = u16(buf, 10),
+                    stop = u8(buf, 9) == 1,
+                ),
+            )
+
+            TYPE_RESCUED -> Decoded.Ok(
+                RescuedPacket(
+                    messageId = u32(buf, 1),
+                    originId = u16(buf, 5),
+                    rescuerId = u16(buf, 7),
+                ),
+            )
+
             else -> Decoded.Dropped("type $type")
         }
         return if (decoded is Decoded.Ok && hasZeroId(decoded.packet)) {
@@ -159,6 +205,10 @@ object PacketCodec {
         is StandbyPacket -> packet.standbyId == 0
 
         is HandoffPacket -> packet.messageId == 0L || packet.originId == 0 || packet.carrierId == 0
+
+        is CallPacket -> packet.callId == 0L || packet.rescuerId == 0 || packet.targetId == 0
+
+        is RescuedPacket -> packet.messageId == 0L || packet.originId == 0 || packet.rescuerId == 0
     }
 
     private fun decodeSos(buf: ByteBuffer): Decoded {
@@ -192,6 +242,7 @@ object PacketCodec {
                     water = status and (1 shl 9) != 0,
                     medical = status and (1 shl 8) != 0,
                     fire = status and (1 shl 7) != 0,
+                    startedRemotely = status and (1 shl 6) != 0,
                 ),
                 battery = batteryValue(u8(buf, 22)),
             ),
@@ -233,6 +284,7 @@ object PacketCodec {
         if (details.water) bits = bits or (1 shl 9)
         if (details.medical) bits = bits or (1 shl 8)
         if (details.fire) bits = bits or (1 shl 7)
+        if (details.startedRemotely) bits = bits or (1 shl 6)
         return bits.toShort()
     }
 

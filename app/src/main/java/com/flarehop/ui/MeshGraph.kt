@@ -66,7 +66,10 @@ object MeshGraphBuilder {
         }
 
         known
-            .filter { !it.cancelled && it.originId != myId && now - it.lastHeardAt <= STALE_MS }
+            .filter {
+                !it.cancelled && !it.rescued && it.originId != myId &&
+                    now - it.lastHeardAt <= STALE_MS
+            }
             .forEach { record ->
                 val victim = record.originId
                 val carrier = record.carrierId

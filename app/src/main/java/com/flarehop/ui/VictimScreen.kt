@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -88,6 +90,13 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
                     onClick = { flare.sendSos(NO_DETAILS) },
                     modifier = Modifier.weight(1f),
                 )
+            } else if (mySos?.status == SosStatus.RESCUED) {
+                RescuedView(
+                    rescuer = mySos?.rescuedBy,
+                    rescuedAt = mySos?.rescuedAt,
+                    flare = flare,
+                    modifier = Modifier.weight(1f),
+                )
             } else {
                 MeshView(flare = flare, modifier = Modifier.weight(1f))
                 OutlinedButton(
@@ -98,6 +107,67 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
                     Text(text = "Cancel SOS", style = MaterialTheme.typography.titleMedium)
                 }
             }
+        }
+    }
+}
+
+// A rescuer marked this person as rescued, so the phone has stopped calling for help. If that
+// was a mistake, one tap starts a new SOS; Done clears the screen. With no answer at all, the
+// phone calls again by itself once the countdown runs out (Contract 3, rule 12).
+@Composable
+private fun RescuedView(
+    rescuer: Int?,
+    rescuedAt: Long?,
+    flare: FlareViewModel,
+    modifier: Modifier,
+) {
+    val names by flare.names.collectAsState()
+    val now = rememberNow()
+    val left = rescuedAt?.let {
+        ((FlareConstants.RESCUE_CONFIRM_MS - (now - it)) / 1_000).coerceAtLeast(0)
+    }
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = "A RESCUER REACHED YOU",
+            style = Inscription,
+            color = Bronze,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "You were marked as rescued" +
+                (rescuer?.let { " by ${names.phoneWithCode(it)}" } ?: "") +
+                ". Your phone has stopped calling for help.",
+            style = MaterialTheme.typography.titleMedium,
+            color = Parchment,
+            textAlign = TextAlign.Center,
+        )
+        if (left != null) {
+            Text(
+                text = "Tap Done if you are safe. Otherwise your phone calls for help again in " +
+                    "$left s.",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Ember,
+                textAlign = TextAlign.Center,
+            )
+        }
+        Button(
+            onClick = { flare.sendSos(NO_DETAILS) },
+            colors = ButtonDefaults.buttonColors(containerColor = Ember, contentColor = Parchment),
+            modifier = Modifier.fillMaxWidth().height(64.dp),
+        ) {
+            Text(text = "I still need help", style = MaterialTheme.typography.titleLarge)
+        }
+        OutlinedButton(
+            onClick = flare::cancelSos,
+            border = BorderStroke(1.dp, BronzeDim),
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+        ) {
+            Text(text = "Done", style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -272,6 +342,18 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
                 color = Parchment,
                 textAlign = TextAlign.Center,
             )
+        }
+        // Another phone started this SOS, not its owner: say which, and how to stop it if safe.
+        mine.startedBy?.let { starter ->
+            item {
+                Text(
+                    text = "${names.phoneWithCode(starter)} started your SOS. " +
+                        "If you are safe, tap Cancel SOS.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Mist,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
         if (mine.status == SosStatus.HANDED_OFF) {
             item {

@@ -1,11 +1,14 @@
 package com.flarehop.flare
 
+import com.flarehop.flare.FlareConstants.CALL_ADVERT_MS
 import com.flarehop.flare.FlareConstants.CANCEL_ADVERT_MS
 import com.flarehop.flare.FlareConstants.HANDOFF_BATTERY_PERCENT
 import com.flarehop.flare.FlareConstants.HANDOFF_RETRY_MS
 import com.flarehop.flare.FlareConstants.IN_RANGE_MS
 import com.flarehop.flare.FlareConstants.JOIN_RSSI_DBM
 import com.flarehop.flare.FlareConstants.RECEIPT_KEEP_MS
+import com.flarehop.flare.FlareConstants.RESCUED_ADVERT_MS
+import com.flarehop.flare.FlareConstants.RESCUE_CONFIRM_MS
 import com.flarehop.flare.FlareConstants.STANDBY_INTERVAL_MS
 import com.flarehop.flare.FlareConstants.TAKEOVER_SILENCE_MS
 import com.flarehop.flare.FlareConstants.TAKEOVER_STEP_MS
@@ -44,6 +47,9 @@ class RealFlareEngine(
     override val directSignal: SharedFlow<DirectSignal> = signals.asSharedFlow()
     override val log: SharedFlow<LogEvent> = events.asSharedFlow()
 
+    private val pendingCallsState = MutableStateFlow<Set<Int>>(emptySet())
+    override val pendingCalls: StateFlow<Set<Int>> = pendingCallsState.asStateFlow()
+
     override var phoneId: Int = newPhoneId()
         private set
 
@@ -55,6 +61,14 @@ class RealFlareEngine(
     // When this phone's own position was last set; the fix age in each SOS counts from here.
     private var fixAtMs = 0L
     private val records = LinkedHashMap<Long, SosRecord>()
+
+    // Requests this phone is sending, by target phone, with when each one stops; and requests
+    // this phone already answered, so a cancelled SOS stays cancelled until someone asks again.
+    private val calls = LinkedHashMap<Int, Pair<CallPacket, Long>>()
+    private val answeredCalls = mutableSetOf<Long>()
+
+    // Announcements this rescuer is sending that it reached someone, by SOS, with when each stops.
+    private val rescues = LinkedHashMap<Long, Pair<RescuedPacket, Long>>()
     private val receipts = LinkedHashMap<Long, ReceiptPacket>()
     private var cancel: HandoffPacket? = null
     private var cancelUntilMs = 0L
@@ -90,61 +104,191 @@ class RealFlareEngine(
                         }
 
                     is StandbyPacket -> onStandby(packet, rssi, atMs)
+
+                    is CallPacket -> onCall(packet, atMs)
+
+                    is RescuedPacket -> onRescued(packet, atMs)
                 }
             }
         }
     }
 
     override fun sendSos(details: SosDetails, fix: Fix?) {
+        synchronized(lock) { start(details, fix, startedBy = null) }
+    }
+
+    override fun startSosOn(phoneId: Int) = ask(phoneId, stop = false)
+
+    override fun stopSosOn(phoneId: Int) = ask(phoneId, stop = true)
+
+    private fun ask(target: Int, stop: Boolean) {
         synchronized(lock) {
-            val now = clock()
-            val record = SosRecord(
-                messageId = newMessageId(),
-                originId = phoneId,
-                carrierId = phoneId,
-                latitude = fix?.latitude,
-                longitude = fix?.longitude,
-                accuracyM = fix?.accuracyM,
-                fixAgeMin = fix?.fixAgeMin,
-                people = details.people,
-                injured = details.injured,
-                trapped = details.trapped,
-                water = details.water,
-                medical = details.medical,
-                fire = details.fire,
-                battery = battery,
-                sound = sound,
-                soundAgeSec = soundAgeSec(now),
-                firstHeardAt = now,
-                lastHeardAt = now,
-                lastRssi = null,
-                acked = false,
-                cancelled = false,
-            )
-            fixAtMs = now
-            cancel = null
-            mySosState.value = MySos(record, SosStatus.SENDING)
+            if (role != Role.RESCUER || target == phoneId) return
+            val call =
+                CallPacket(newMessageId(), rescuerId = phoneId, targetId = target, stop = stop)
+            calls[target] = call to clock() + CALL_ADVERT_MS
+            publishCalls()
         }
     }
 
+    // Rule 11: only the phone named, and only a survivor phone, so a rescuer is never made a
+    // victim. A start only reaches a phone not already sending, and its SOS then works like one
+    // its owner tapped. A stop only ends an SOS that was started this way: one its owner tapped
+    // is theirs to cancel.
+    private fun onCall(packet: CallPacket, atMs: Long) {
+        if (packet.targetId != phoneId || role != Role.SURVIVOR) return
+        if (packet.callId in answeredCalls) return
+        val mine = mySosState.value
+        if (packet.stop) {
+            if (mine?.startedBy == null || mine.status == SosStatus.RESCUED) return
+            answeredCalls += packet.callId
+            cancelLocked()
+            emit(LogType.STOPPED_REMOTELY, mine.record.messageId, packet.rescuerId, atMs)
+            return
+        }
+        if (mine != null) return
+        answeredCalls += packet.callId
+        start(STARTED_REMOTELY, fix = null, startedBy = packet.rescuerId)
+        emit(
+            LogType.STARTED_REMOTELY,
+            mySosState.value!!.record.messageId,
+            packet.rescuerId,
+            atMs,
+        )
+    }
+
+    private fun publishCalls() {
+        pendingCallsState.value = calls.keys.toSet()
+    }
+
+    private fun start(details: SosDetails, fix: Fix?, startedBy: Int?) {
+        val now = clock()
+        val record = SosRecord(
+            messageId = newMessageId(),
+            originId = phoneId,
+            carrierId = phoneId,
+            latitude = fix?.latitude,
+            longitude = fix?.longitude,
+            accuracyM = fix?.accuracyM,
+            fixAgeMin = fix?.fixAgeMin,
+            people = details.people,
+            injured = details.injured,
+            trapped = details.trapped,
+            water = details.water,
+            medical = details.medical,
+            fire = details.fire,
+            battery = battery,
+            sound = sound,
+            soundAgeSec = soundAgeSec(now),
+            firstHeardAt = now,
+            lastHeardAt = now,
+            lastRssi = null,
+            acked = false,
+            cancelled = false,
+            startedRemotely = details.startedRemotely,
+        )
+        fixAtMs = now
+        cancel = null
+        mySosState.value = MySos(record, SosStatus.SENDING, startedBy)
+    }
+
     override fun cancelSos() {
+        synchronized(lock) { cancelLocked() }
+    }
+
+    private fun cancelLocked() {
+        val current = mySosState.value ?: return
+        cancel = HandoffPacket(
+            messageId = current.record.messageId,
+            originId = current.record.originId,
+            carrierId = phoneId,
+            successorId = 0,
+            battery = battery,
+        )
+        cancelUntilMs = clock() + CANCEL_ADVERT_MS
+        handoffs.remove(current.record.messageId)
+        mySosState.value = null
+    }
+
+    override fun markRescued(messageId: Long) {
         synchronized(lock) {
-            val current = mySosState.value ?: return
-            cancel = HandoffPacket(
-                messageId = current.record.messageId,
-                originId = current.record.originId,
-                carrierId = phoneId,
-                successorId = 0,
-                battery = battery,
+            if (role != Role.RESCUER) return
+            val record = records[messageId] ?: return
+            val now = clock()
+            rescues[messageId] =
+                RescuedPacket(messageId, record.originId, phoneId) to now + RESCUED_ADVERT_MS
+            applyRescued(messageId, record.originId, phoneId, now)
+        }
+    }
+
+    // Rule 12: a person marked rescued who does not answer "I still need help" or "Done" within
+    // 45 seconds may be unable to, so the phone calls for help again, as a new SOS rescuers see
+    // as live, keeping the last known position.
+    private fun restartIfRescueNotConfirmed(now: Long) {
+        val mine = mySosState.value ?: return
+        val since = mine.rescuedAt ?: return
+        if (mine.status != SosStatus.RESCUED || now - since < RESCUE_CONFIRM_MS) return
+        val old = mine.record
+        val fix = old.latitude?.let { lat ->
+            old.longitude?.let { lon ->
+                Fix(lat, lon, old.accuracyM, old.fixAgeMin?.plus(minutesBetween(fixAtMs, now)) ?: 0)
+            }
+        }
+        start(NO_DETAILS, fix, startedBy = null)
+        emit(LogType.RESCUE_NOT_CONFIRMED, mySosState.value!!.record.messageId, phoneId, now)
+    }
+
+    private fun onRescued(packet: RescuedPacket, atMs: Long) {
+        applyRescued(packet.messageId, packet.originId, packet.rescuerId, atMs)
+    }
+
+    // Rule 12: everyone who hears it marks the SOS rescued, a carrier drops its copy so no one
+    // takes it over again, and the victim's own phone stops calling for help.
+    private fun applyRescued(messageId: Long, originId: Int, rescuerId: Int, atMs: Long) {
+        handoffs.remove(messageId)
+        if (carriedRecords.remove(messageId) != null) publishCarried()
+        records[messageId]?.takeIf { !it.rescued }?.let {
+            records[messageId] = it.copy(rescued = true)
+            publishRecords()
+            emit(LogType.RESCUED, messageId, rescuerId, atMs)
+        }
+        val mine = mySosState.value
+        if (mine != null && mine.record.messageId == messageId &&
+            mine.status != SosStatus.RESCUED
+        ) {
+            mySosState.value = mine.copy(
+                record = mine.record.copy(rescued = true),
+                status = SosStatus.RESCUED,
+                rescuedBy = rescuerId,
+                rescuedAt = clock(),
             )
-            cancelUntilMs = clock() + CANCEL_ADVERT_MS
-            handoffs.remove(current.record.messageId)
-            mySosState.value = null
+            emit(LogType.RESCUED, messageId, rescuerId, atMs)
+        }
+        if (calls[originId]?.first?.stop == true) {
+            calls.remove(originId)
+            publishCalls()
         }
     }
 
     override fun setRole(role: Role) {
-        synchronized(lock) { this.role = role }
+        synchronized(lock) {
+            // Becoming a rescuer starts a clean panel: SOS that were cancelled or rescued before
+            // are cleared. Live SOS stay, and so do ones that went quiet, whose victim may still
+            // need finding.
+            if (role == Role.RESCUER && this.role != Role.RESCUER) {
+                val finished = records.values.filter {
+                    it.cancelled || it.rescued
+                }.map { it.messageId }
+                if (finished.isNotEmpty()) {
+                    finished.forEach {
+                        records.remove(it)
+                        receipts.remove(it)
+                    }
+                    publishRecords()
+                }
+            }
+            this.role = role
+        }
     }
 
     override fun setBattery(percent: Int) {
@@ -183,6 +327,9 @@ class RealFlareEngine(
         synchronized(lock) {
             val now = clock()
             if (cancel != null && now >= cancelUntilMs) cancel = null
+            restartIfRescueNotConfirmed(now)
+            if (calls.values.removeAll { (_, until) -> now >= until }) publishCalls()
+            rescues.values.removeAll { (_, until) -> now >= until }
             publishGroup(now)
             planHandoffs(now)
             planTakeovers(now)
@@ -195,6 +342,8 @@ class RealFlareEngine(
                     handoffPacket(messageId, handoff.successorId)?.let { add(it) }
                 }
                 cancel?.let { add(it) }
+                calls.values.forEach { (call, _) -> add(call) }
+                rescues.values.forEach { (rescued, _) -> add(rescued) }
                 receipts.forEach { (messageId, receipt) ->
                     val heard = records[messageId]?.lastHeardAt ?: return@forEach
                     if (now - heard <= RECEIPT_KEEP_MS) add(receipt)
@@ -215,6 +364,10 @@ class RealFlareEngine(
             soundAtMs = 0L
             fixAtMs = 0L
             records.clear()
+            calls.clear()
+            answeredCalls.clear()
+            rescues.clear()
+            publishCalls()
             receipts.clear()
             neighbours.clear()
             lastStandbyMs = null
@@ -259,8 +412,15 @@ class RealFlareEngine(
             lastRssi = rssi,
             acked = existing?.acked ?: false,
             cancelled = existing?.cancelled ?: false,
+            rescued = existing?.rescued ?: false,
+            startedRemotely = packet.details.startedRemotely,
         )
         publishRecords()
+        // The phone this one asked to start is now sending, so that request has done its job.
+        if (calls[packet.originId]?.first?.stop == false) {
+            calls.remove(packet.originId)
+            publishCalls()
+        }
         if (existing == null) emit(LogType.HEARD, packet.messageId, packet.carrierId, atMs)
         hearNeighbour(packet.carrierId, packet.battery, rssi, atMs, packet.messageId)
         resolveConflict(packet, atMs)
@@ -368,7 +528,11 @@ class RealFlareEngine(
         handoffs.remove(messageId)
         val mine = mySosState.value
         if (mine != null && mine.record.messageId == messageId) {
-            mySosState.value = MySos(mine.record.copy(carrierId = carrierId), SosStatus.HANDED_OFF)
+            mySosState.value =
+                mine.copy(
+                    record = mine.record.copy(carrierId = carrierId),
+                    status = SosStatus.HANDED_OFF,
+                )
         }
         if (carriedRecords.remove(messageId) != null) publishCarried()
     }
@@ -426,7 +590,7 @@ class RealFlareEngine(
         val mine = mySosState.value?.record?.messageId
         var changed = false
         records.values.forEach { record ->
-            if (record.cancelled || record.messageId == mine) return@forEach
+            if (record.cancelled || record.rescued || record.messageId == mine) return@forEach
             if (record.messageId in carriedRecords) return@forEach
             val rssi = record.lastRssi ?: return@forEach
             if (rssi < JOIN_RSSI_DBM) return@forEach
@@ -469,6 +633,11 @@ class RealFlareEngine(
         receipts.remove(packet.messageId)
         handoffs.remove(packet.messageId)
         if (carriedRecords.remove(packet.messageId) != null) publishCarried()
+        // The phone this one asked to stop has stopped.
+        if (calls[packet.originId]?.first?.stop == true) {
+            calls.remove(packet.originId)
+            publishCalls()
+        }
         val record = records[packet.messageId] ?: return
         if (record.cancelled) return
         records[packet.messageId] = record.copy(cancelled = true)
@@ -493,6 +662,7 @@ class RealFlareEngine(
             water = record.water,
             medical = record.medical,
             fire = record.fire,
+            startedRemotely = record.startedRemotely,
         ),
         battery = battery,
     )
@@ -516,6 +686,7 @@ class RealFlareEngine(
                 water = record.water,
                 medical = record.medical,
                 fire = record.fire,
+                startedRemotely = record.startedRemotely,
             ),
             battery = battery,
         )
@@ -557,3 +728,24 @@ class RealFlareEngine(
 
     private fun newMessageId(): Long = random.nextLong(1L, 0x1_0000_0000L)
 }
+
+// An SOS another phone started has no people count or conditions, like a tapped one.
+private val STARTED_REMOTELY = SosDetails(
+    people = 0,
+    injured = false,
+    trapped = false,
+    water = false,
+    medical = false,
+    fire = false,
+    startedRemotely = true,
+)
+
+// A new SOS after an unconfirmed rescue has no people count or conditions, like a tapped one.
+private val NO_DETAILS = SosDetails(
+    people = 0,
+    injured = false,
+    trapped = false,
+    water = false,
+    medical = false,
+    fire = false,
+)
