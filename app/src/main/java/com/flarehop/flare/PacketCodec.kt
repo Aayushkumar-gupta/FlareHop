@@ -109,33 +109,54 @@ object PacketCodec {
         val version = u8(buf, 0) shr 4
         val type = u8(buf, 0) and 0x0F
         if (version != PROTOCOL_VERSION) return Decoded.Dropped("version $version")
-        val packet = when (type) {
-            TYPE_SOS -> return decodeSos(buf)
+        val decoded = when (type) {
+            TYPE_SOS -> decodeSos(buf)
 
-            TYPE_RECEIPT -> ReceiptPacket(
-                receiptId = u32(buf, 1),
-                rescuerId = u16(buf, 5),
-                ackedMessageId = u32(buf, 10),
+            TYPE_RECEIPT -> Decoded.Ok(
+                ReceiptPacket(
+                    receiptId = u32(buf, 1),
+                    rescuerId = u16(buf, 5),
+                    ackedMessageId = u32(buf, 10),
+                ),
             )
 
-            TYPE_STANDBY -> StandbyPacket(
-                messageId = u32(buf, 1),
-                originId = u16(buf, 5),
-                standbyId = u16(buf, 7),
-                battery = batteryValue(u8(buf, 22)),
+            TYPE_STANDBY -> Decoded.Ok(
+                StandbyPacket(
+                    messageId = u32(buf, 1),
+                    originId = u16(buf, 5),
+                    standbyId = u16(buf, 7),
+                    battery = batteryValue(u8(buf, 22)),
+                ),
             )
 
-            TYPE_HANDOFF -> HandoffPacket(
-                messageId = u32(buf, 1),
-                originId = u16(buf, 5),
-                carrierId = u16(buf, 7),
-                successorId = u16(buf, 10),
-                battery = batteryValue(u8(buf, 22)),
+            TYPE_HANDOFF -> Decoded.Ok(
+                HandoffPacket(
+                    messageId = u32(buf, 1),
+                    originId = u16(buf, 5),
+                    carrierId = u16(buf, 7),
+                    successorId = u16(buf, 10),
+                    battery = batteryValue(u8(buf, 22)),
+                ),
             )
 
-            else -> return Decoded.Dropped("type $type")
+            else -> Decoded.Dropped("type $type")
         }
-        return Decoded.Ok(packet)
+        return if (decoded is Decoded.Ok && hasZeroId(decoded.packet)) {
+            Decoded.Dropped("zero id")
+        } else {
+            decoded
+        }
+    }
+
+    private fun hasZeroId(packet: Packet): Boolean = when (packet) {
+        is SosPacket -> packet.messageId == 0L || packet.originId == 0 || packet.carrierId == 0
+
+        is ReceiptPacket ->
+            packet.receiptId == 0L || packet.rescuerId == 0 || packet.ackedMessageId == 0L
+
+        is StandbyPacket -> packet.standbyId == 0
+
+        is HandoffPacket -> packet.messageId == 0L || packet.originId == 0 || packet.carrierId == 0
     }
 
     private fun decodeSos(buf: ByteBuffer): Decoded {

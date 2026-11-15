@@ -179,4 +179,40 @@ class PacketCodecTest {
         assertEquals("position", dropReason(PacketCodec.encode(sos.copy(latitude = 91.0))))
         assertEquals("position", dropReason(PacketCodec.encode(sos.copy(longitude = -181.0))))
     }
+
+    @Test
+    fun dropsAnSosWithAZeroId() {
+        assertEquals("zero id", dropReason(PacketCodec.encode(sos.copy(messageId = 0L))))
+        assertEquals("zero id", dropReason(PacketCodec.encode(sos.copy(originId = 0))))
+        assertEquals("zero id", dropReason(PacketCodec.encode(sos.copy(carrierId = 0))))
+    }
+
+    @Test
+    fun dropsAReceiptWithAZeroId() {
+        val receipt = ReceiptPacket(receiptId = 7L, rescuerId = 9, ackedMessageId = 5L)
+        assertEquals("zero id", dropReason(PacketCodec.encode(receipt.copy(receiptId = 0L))))
+        assertEquals("zero id", dropReason(PacketCodec.encode(receipt.copy(rescuerId = 0))))
+        assertEquals("zero id", dropReason(PacketCodec.encode(receipt.copy(ackedMessageId = 0L))))
+    }
+
+    @Test
+    fun standbyNeedsOnlyItsPhoneId() {
+        val standby = StandbyPacket(messageId = 0L, originId = 0, standbyId = 20, battery = 71)
+        assertEquals(standby, decoded(PacketCodec.encode(standby)))
+        assertEquals("zero id", dropReason(PacketCodec.encode(standby.copy(standbyId = 0))))
+    }
+
+    @Test
+    fun handoffMayCancelButNeedsItsOtherIds() {
+        val handoff = HandoffPacket(
+            messageId = 5L,
+            originId = 10,
+            carrierId = 10,
+            successorId = 0,
+            battery = 8,
+        )
+        assertEquals(handoff, decoded(PacketCodec.encode(handoff)))
+        assertEquals("zero id", dropReason(PacketCodec.encode(handoff.copy(messageId = 0L))))
+        assertEquals("zero id", dropReason(PacketCodec.encode(handoff.copy(carrierId = 0))))
+    }
 }

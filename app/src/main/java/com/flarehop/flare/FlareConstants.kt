@@ -19,6 +19,7 @@ object FlareConstants {
     const val TAKEOVER_SILENCE_MS = 15_000L
     const val TAKEOVER_STEP_MS = 5_000L
     const val JOIN_RSSI_DBM = -70
+    const val IN_RANGE_MS = 15_000L
     const val STANDBY_INTERVAL_MS = 5_000L
     const val HANDOFF_RETRY_MS = 30_000L
     const val CANCEL_ADVERT_MS = 10_000L

@@ -139,7 +139,7 @@ class RealFlareEngineTest {
         assertEquals(500, record.carrierId)
         assertEquals(-60, record.lastRssi)
         assertEquals(now, record.firstHeardAt)
-        assertEquals(listOf(LogType.HEARD), log.map { it.type })
+        assertEquals(listOf(LogType.HEARD, LogType.JOINED), log.map { it.type })
     }
 
     @Test
@@ -191,9 +191,9 @@ class RealFlareEngineTest {
     }
 
     @Test
-    fun victimDoesNotSendReceipts() {
+    fun onlyRescuersSendReceipts() {
         engine.onPacket(heardSos(), rssi = -60, atMs = now)
-        assertNull(engine.nextPacket())
+        assertTrue(next() is StandbyPacket)
     }
 
     @Test
