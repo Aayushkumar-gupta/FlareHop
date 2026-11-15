@@ -19,6 +19,7 @@ class RealFlareEngine(
 
     private val mySosState = MutableStateFlow<MySos?>(null)
     private val knownSosState = MutableStateFlow<List<SosRecord>>(emptyList())
+    private val carriedState = MutableStateFlow<List<SosRecord>>(emptyList())
     private val groupState = MutableStateFlow<List<GroupMember>>(emptyList())
     private val signals = MutableSharedFlow<DirectSignal>(
         extraBufferCapacity = 64,
@@ -31,6 +32,7 @@ class RealFlareEngine(
 
     override val mySos: StateFlow<MySos?> = mySosState.asStateFlow()
     override val knownSos: StateFlow<List<SosRecord>> = knownSosState.asStateFlow()
+    override val carried: StateFlow<List<SosRecord>> = carriedState.asStateFlow()
     override val group: StateFlow<List<GroupMember>> = groupState.asStateFlow()
     override val directSignal: SharedFlow<DirectSignal> = signals.asSharedFlow()
     override val log: SharedFlow<LogEvent> = events.asSharedFlow()
@@ -38,7 +40,7 @@ class RealFlareEngine(
     var phoneId: Int = newPhoneId()
         private set
 
-    private var role = Role.VICTIM
+    private var role = Role.SURVIVOR
     private var battery: Int? = null
     private var sound = SoundType.NONE
     private var soundAtMs = 0L
@@ -164,6 +166,7 @@ class RealFlareEngine(
             rotation = 0
             mySosState.value = null
             knownSosState.value = emptyList()
+            carriedState.value = emptyList()
             groupState.value = emptyList()
         }
     }

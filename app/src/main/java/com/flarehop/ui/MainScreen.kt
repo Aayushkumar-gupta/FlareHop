@@ -27,11 +27,8 @@ fun MainScreen(flare: FlareViewModel) {
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
             NavigationBar {
-                RoleTab(label = "Victim", selected = tab == Role.VICTIM) {
-                    flare.openTab(Role.VICTIM)
-                }
-                RoleTab(label = "Nearby", selected = tab == Role.NEARBY) {
-                    flare.openTab(Role.NEARBY)
+                RoleTab(label = "Survivor", selected = tab == Role.SURVIVOR) {
+                    flare.openTab(Role.SURVIVOR)
                 }
                 RoleTab(label = "Rescuer", selected = tab == Role.RESCUER) {
                     flare.openTab(Role.RESCUER)
@@ -42,8 +39,7 @@ fun MainScreen(flare: FlareViewModel) {
         val modifier = Modifier.padding(innerPadding)
         when (tab) {
             Role.RESCUER -> SosListScreen(flare = flare, modifier = modifier)
-            Role.NEARBY -> NearbyScreen(engine = flare.engine, modifier = modifier)
-            Role.VICTIM -> VictimScreen(flare = flare, modifier = modifier)
+            Role.SURVIVOR -> VictimScreen(flare = flare, modifier = modifier)
         }
     }
 }

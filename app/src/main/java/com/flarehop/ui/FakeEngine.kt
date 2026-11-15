@@ -43,6 +43,9 @@ class FakeEngine(
     private val _knownSos = MutableStateFlow<List<SosRecord>>(emptyList())
     override val knownSos: StateFlow<List<SosRecord>> = _knownSos.asStateFlow()
 
+    private val _carried = MutableStateFlow<List<SosRecord>>(emptyList())
+    override val carried: StateFlow<List<SosRecord>> = _carried.asStateFlow()
+
     private val _group = MutableStateFlow<List<GroupMember>>(emptyList())
     override val group: StateFlow<List<GroupMember>> = _group.asStateFlow()
 
@@ -52,7 +55,7 @@ class FakeEngine(
     private val _log = MutableSharedFlow<LogEvent>(extraBufferCapacity = 64)
     override val log: SharedFlow<LogEvent> = _log.asSharedFlow()
 
-    private var role = Role.VICTIM
+    private var role = Role.SURVIVOR
     private var phoneId = newPhoneId()
     private var battery = 80
     private var sound = SoundType.NONE
@@ -95,13 +98,13 @@ class FakeEngine(
         )
         _mySos.value = MySos(record, SosStatus.SENDING)
         _group.value = listOf(
-            GroupMember(phoneId, isCarrier = true, battery = battery, rssi = null, lastHeardAt = t),
+            GroupMember(phoneId, battery = battery, rssi = null, lastHeardAt = t, carriedCount = 1),
             GroupMember(
                 FAKE_STANDBY_ID,
-                isCarrier = false,
                 battery = FAKE_STANDBY_BATTERY,
                 rssi = -62,
                 lastHeardAt = t,
+                carriedCount = 0,
             ),
         )
         emitLog(LogType.JOINED, record.messageId, FAKE_STANDBY_ID)
@@ -124,14 +127,9 @@ class FakeEngine(
 
     override fun setRole(role: Role) {
         this.role = role
-        if (role != Role.NEARBY && _mySos.value?.status == SosStatus.STANDING_BY) {
-            _mySos.value = null
-            _group.value = emptyList()
-        }
         when (role) {
-            Role.NEARBY -> if (_mySos.value == null) standBy()
             Role.RESCUER -> sendReceipts()
-            Role.VICTIM -> Unit
+            Role.SURVIVOR -> Unit
         }
     }
 
@@ -205,7 +203,6 @@ class FakeEngine(
     private fun fakeHandoff() {
         when (_mySos.value?.status) {
             SosStatus.SENDING -> handOffMine()
-            SosStatus.STANDING_BY -> takeOverMine()
             SosStatus.HANDED_OFF, null -> Unit
         }
         swapSampleCarrier()
@@ -215,7 +212,7 @@ class FakeEngine(
         val mine = _mySos.value ?: return
         if (mine.status != SosStatus.SENDING) return
         val next = _group.value
-            .filter { !it.isCarrier }
+            .filter { it.phoneId != phoneId }
             .maxWithOrNull(
                 compareBy<GroupMember> {
                     it.battery ?: -1
@@ -227,46 +224,10 @@ class FakeEngine(
                 mine.record.copy(carrierId = next.phoneId, battery = next.battery),
                 SosStatus.HANDED_OFF,
             )
-        _group.value = _group.value.map { it.copy(isCarrier = it.phoneId == next.phoneId) }
+        _group.value = _group.value.map {
+            it.copy(carriedCount = if (it.phoneId == next.phoneId) 1 else 0)
+        }
         emitLog(LogType.HANDOFF_SENT, mine.record.messageId, next.phoneId)
-    }
-
-    private fun takeOverMine() {
-        val mine = _mySos.value ?: return
-        val t = now()
-        val record = mine.record.copy(
-            carrierId = phoneId,
-            battery = battery,
-            sound = sound,
-            soundAgeMin = soundAgeMin(t),
-        )
-        _mySos.value = MySos(record, SosStatus.SENDING)
-        _group.value =
-            _group.value.map { it.copy(isCarrier = it.phoneId == phoneId, lastHeardAt = t) }
-        emitLog(LogType.TOOK_OVER, record.messageId, phoneId)
-    }
-
-    private fun standBy() {
-        val target = _knownSos.value.firstOrNull { it.messageId == STANDBY_SAMPLE_ID } ?: return
-        val t = now()
-        _mySos.value = MySos(target, SosStatus.STANDING_BY)
-        _group.value = listOf(
-            GroupMember(
-                target.carrierId,
-                isCarrier = true,
-                battery = target.battery,
-                rssi = target.lastRssi,
-                lastHeardAt = t,
-            ),
-            GroupMember(
-                phoneId,
-                isCarrier = false,
-                battery = battery,
-                rssi = null,
-                lastHeardAt = t,
-            ),
-        )
-        emitLog(LogType.JOINED, target.messageId, phoneId)
     }
 
     private fun swapSampleCarrier() {
