@@ -111,8 +111,10 @@ class HandoffRulesTest {
         val b = phone("B", seed = 2, battery = 80)
         val d = phone("D", seed = 4, battery = 60)
         send(a)
+        // B is named but never answers. A cut link would not do: B would stop hearing A and take
+        // the SOS over by rule 7.
+        radio.switchOff("B")
         a.setBattery(9)
-        radio.cutLink("A", "B")
         radio.run(25_000)
         assertTrue(d.carried.value.isEmpty())
 
@@ -182,7 +184,6 @@ class HandoffRulesTest {
     }
 
     @Test
-    @Ignore("Waits for rule 7, takeover after silence (step 3.3)")
     fun rule7TheStrongestPhoneTakesOverAfter15SecondsOfSilence() {
         val a = phone("A", seed = 1, battery = 50)
         val b = phone("B", seed = 2, battery = 80)
@@ -197,7 +198,6 @@ class HandoffRulesTest {
     }
 
     @Test
-    @Ignore("Waits for rule 7, takeover after silence (step 3.3)")
     fun rule7AWeakerPhoneWaitsLongerAndThenStandsDown() {
         val a = phone("A", seed = 1, battery = 50)
         val b = phone("B", seed = 2, battery = 80)

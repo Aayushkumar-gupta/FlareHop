@@ -7,6 +7,8 @@ import com.flarehop.flare.FlareConstants.IN_RANGE_MS
 import com.flarehop.flare.FlareConstants.JOIN_RSSI_DBM
 import com.flarehop.flare.FlareConstants.RECEIPT_KEEP_MS
 import com.flarehop.flare.FlareConstants.STANDBY_INTERVAL_MS
+import com.flarehop.flare.FlareConstants.TAKEOVER_SILENCE_MS
+import com.flarehop.flare.FlareConstants.TAKEOVER_STEP_MS
 import kotlin.random.Random
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -164,6 +166,7 @@ class RealFlareEngine(
             if (cancel != null && now >= cancelUntilMs) cancel = null
             publishGroup(now)
             planHandoffs(now)
+            planTakeovers(now)
             val packets = buildList {
                 mySosState.value
                     ?.takeIf { it.status == SosStatus.SENDING }
@@ -374,6 +377,33 @@ class RealFlareEngine(
             handoffs[messageId] = Handoff(next.phoneId, now, stillTried)
             emit(LogType.HANDOFF_SENT, messageId, next.phoneId, now)
         }
+    }
+
+    // Contract 3 rule 7: a copy whose in-range carrier went silent is taken over. Each phone with
+    // more battery in range adds a step to the wait, so the strongest acts first and the others
+    // hear it broadcast again before their own wait runs out.
+    private fun planTakeovers(now: Long) {
+        if (role != Role.SURVIVOR) return
+        val level = battery ?: return
+        if (level < HANDOFF_BATTERY_PERCENT) return
+        val mine = mySosState.value?.record?.messageId
+        var changed = false
+        records.values.forEach { record ->
+            if (record.cancelled || record.messageId == mine) return@forEach
+            if (record.messageId in carriedRecords) return@forEach
+            val rssi = record.lastRssi ?: return@forEach
+            if (rssi < JOIN_RSSI_DBM) return@forEach
+            val stronger = groupState.value.count { member ->
+                val other = member.battery
+                other != null && other > level
+            }
+            val wait = TAKEOVER_SILENCE_MS + TAKEOVER_STEP_MS * stronger
+            if (now - record.lastHeardAt < wait) return@forEach
+            carriedRecords[record.messageId] = record.copy(carrierId = phoneId)
+            emit(LogType.TOOK_OVER, record.messageId, phoneId, now)
+            changed = true
+        }
+        if (changed) publishCarried()
     }
 
     private fun strongestInRange(myLevel: Int, exclude: Set<Int>): GroupMember? = groupState.value
