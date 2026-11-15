@@ -88,13 +88,14 @@ class SosHistory {
     }
 
     // A sound counts again when its type changes, or when its age drops, which means the victim's
-    // phone heard it once more.
+    // phone heard it once more. The age is in seconds, so a repeat only counts after a quiet
+    // minute; steady knocking would otherwise add an entry every second.
     private fun soundIsNew(before: SosRecord, now: SosRecord): Boolean {
         if (now.sound == SoundType.NONE) return false
         if (now.sound != before.sound) return true
-        val was = before.soundAgeMin ?: return false
-        val age = now.soundAgeMin ?: return false
-        return age < was
+        val was = before.soundAgeSec ?: return false
+        val age = now.soundAgeSec ?: return false
+        return age < was && was >= REPEAT_AFTER_SEC
     }
 
     // Battery is logged in 10% steps from the same carrier; a new carrier's battery is part of
@@ -131,11 +132,13 @@ class SosHistory {
         SoundType.SHOUT -> "Shouting"
         SoundType.KNOCK -> "Knocking"
         SoundType.CRYING -> "Crying"
+        SoundType.CROWD -> "Crowd noise"
     }
 
     companion object {
         const val MAX_ENTRIES = 100
         const val BATTERY_STEP = 10
         const val MIN_MOVE_M = 20.0
+        const val REPEAT_AFTER_SEC = 60
     }
 }

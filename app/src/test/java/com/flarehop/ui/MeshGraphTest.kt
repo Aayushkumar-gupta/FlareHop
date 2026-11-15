@@ -40,7 +40,7 @@ class MeshGraphTest {
         fire = false,
         battery = 40,
         sound = SoundType.NONE,
-        soundAgeMin = null,
+        soundAgeSec = null,
         firstHeardAt = heardAt,
         lastHeardAt = heardAt,
         lastRssi = -61,

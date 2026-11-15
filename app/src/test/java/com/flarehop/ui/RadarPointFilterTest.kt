@@ -29,7 +29,7 @@ class RadarPointFilterTest {
         fire = false,
         battery = 80,
         sound = SoundType.NONE,
-        soundAgeMin = null,
+        soundAgeSec = null,
         firstHeardAt = 0L,
         lastHeardAt = 0L,
         lastRssi = -70,

@@ -19,7 +19,7 @@ data class SosPacket(
     val originId: Int,
     val carrierId: Int,
     val sound: SoundType,
-    val soundAgeMin: Int?,
+    val soundAgeSec: Int?,
     val latitude: Double?,
     val longitude: Double?,
     val accuracyM: Int?,
@@ -54,6 +54,8 @@ sealed interface Decoded {
 
 object PacketCodec {
     private const val DEGREE_SCALE = 10_000_000.0
+    private const val EXACT_SOUND_SECONDS = 120
+    private const val SOUND_MINUTE_BASE = 118
 
     fun encode(packet: Packet): ByteArray {
         val buf = ByteBuffer.allocate(PACKET_SIZE)
@@ -71,8 +73,8 @@ object PacketCodec {
                 buf.put(19, if (hasFix) capped(packet.fixAgeMin) else UNKNOWN_BYTE.toByte())
                 buf.putShort(20, statusBits(packet.details))
                 buf.put(22, batteryByte(packet.battery))
-                val soundAge = if (packet.sound == SoundType.NONE) null else packet.soundAgeMin
-                buf.put(23, capped(soundAge))
+                val soundAge = if (packet.sound == SoundType.NONE) null else packet.soundAgeSec
+                buf.put(23, soundAgeByte(soundAge))
             }
 
             is ReceiptPacket -> {
@@ -178,7 +180,7 @@ object PacketCodec {
                 originId = u16(buf, 5),
                 carrierId = u16(buf, 7),
                 sound = sound,
-                soundAgeMin = if (sound == SoundType.NONE) null else orNull(u8(buf, 23)),
+                soundAgeSec = if (sound == SoundType.NONE) null else soundAgeSeconds(u8(buf, 23)),
                 latitude = latitude,
                 longitude = longitude,
                 accuracyM = orNull(u8(buf, 18)),
@@ -204,6 +206,21 @@ object PacketCodec {
 
     private fun orNull(value: Int): Int? = if (value == UNKNOWN_BYTE) null else value
 
+    // Byte 23 is exact to the second for the first two minutes, so a rescuer can see "Knocking,
+    // 12 s ago", then counts whole minutes up to 136, which covers the 10-minute score window.
+    private fun soundAgeByte(seconds: Int?): Byte {
+        if (seconds == null) return UNKNOWN_BYTE.toByte()
+        val age = seconds.coerceAtLeast(0)
+        val value = if (age < EXACT_SOUND_SECONDS) age else SOUND_MINUTE_BASE + age / 60
+        return value.coerceAtMost(BYTE_CAP).toByte()
+    }
+
+    private fun soundAgeSeconds(value: Int): Int? = when {
+        value == UNKNOWN_BYTE -> null
+        value < EXACT_SOUND_SECONDS -> value
+        else -> (value - SOUND_MINUTE_BASE) * 60
+    }
+
     private fun batteryByte(percent: Int?): Byte =
         (percent?.coerceIn(0, 100) ?: UNKNOWN_BYTE).toByte()
 
@@ -225,13 +242,17 @@ object PacketCodec {
         SoundType.SHOUT -> 2
         SoundType.KNOCK -> 3
         SoundType.CRYING -> 4
+        SoundType.CROWD -> 5
     }
 
+    // A phone built before code 5 existed reads crowd noise as no sound, which is safe because
+    // crowd noise is never a sign of life.
     private fun soundType(code: Int): SoundType = when (code) {
         1 -> SoundType.SPEECH
         2 -> SoundType.SHOUT
         3 -> SoundType.KNOCK
         4 -> SoundType.CRYING
+        5 -> SoundType.CROWD
         else -> SoundType.NONE
     }
 

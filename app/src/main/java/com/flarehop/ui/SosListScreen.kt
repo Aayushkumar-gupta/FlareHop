@@ -318,7 +318,7 @@ private fun SosCard(
                     fontWeight = FontWeight.Bold,
                 )
                 HorizontalDivider()
-                InfoRow("Sound", soundText(record))
+                InfoRow("Sound", soundText(record, now))
                 InfoRow("Location", locationText(record, here))
                 InfoRow("Last signal", lastSignalText(record, now))
                 InfoRow("Battery", record.battery?.let { "$it%" } ?: "Unknown")
@@ -422,20 +422,31 @@ private fun bandColor(band: PriorityBand): Color = when (band) {
     PriorityBand.NORMAL -> MaterialTheme.colorScheme.secondary
 }
 
-fun soundText(record: SosRecord): String {
-    val label = when (record.sound) {
-        SoundType.NONE -> return "No sound detected yet"
-        SoundType.SPEECH -> "Speech"
-        SoundType.SHOUT -> "Shouting"
-        SoundType.KNOCK -> "Knocking"
-        SoundType.CRYING -> "Crying"
-    }
-    val age = record.soundAgeMin
-    return when {
-        age == null -> label
-        age == 0 -> "$label, just now"
-        else -> "$label, $age min ago"
-    }
+fun soundLabel(type: SoundType): String = when (type) {
+    SoundType.NONE -> "No sound detected yet"
+    SoundType.SPEECH -> "Speech"
+    SoundType.SHOUT -> "Shouting"
+    SoundType.KNOCK -> "Knocking"
+    SoundType.CRYING -> "Crying"
+    SoundType.CROWD -> "Crowd noise"
+}
+
+// The age was measured when the newest copy arrived, so it keeps counting between packets and the
+// card shows when the victim's phone really heard the sound.
+fun soundText(record: SosRecord, now: Long): String {
+    val label = soundLabel(record.sound)
+    if (record.sound == SoundType.NONE) return label
+    val age = record.soundAgeSec ?: return label
+    val seconds = age + ((now - record.lastHeardAt) / 1_000L).coerceAtLeast(0L)
+    return "$label, ${secondsAgoText(seconds)}"
+}
+
+// Exact seconds, unlike agoText: the victim's phone measured the sound's age itself, so it does
+// not flicker with every copy that arrives.
+fun secondsAgoText(seconds: Long): String = when {
+    seconds < JUST_NOW_SEC -> "just now"
+    seconds < 60 -> "$seconds s ago"
+    else -> "${seconds / 60} min ago"
 }
 
 fun locationText(record: SosRecord, here: Position?): String {
@@ -524,6 +535,7 @@ private val HIGH_ORANGE = Color(0xFFE65100)
 private val LISTENING_GREEN = Color(0xFF2E7D32)
 
 private const val CLOCK_TICK_MS = 1_000L
+private const val JUST_NOW_SEC = 5
 private const val PULSE_MS = 900
 private const val DIMMED_ALPHA = 0.55f
 private const val INFO_LABEL_WIDTH = 72

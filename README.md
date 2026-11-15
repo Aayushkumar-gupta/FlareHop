@@ -2,7 +2,7 @@
 
 FlareHop is a rescue app for Android that works with no cell towers, no internet and no pairing. A trapped person taps SOS once, and their phone keeps calling for help over Bluetooth, even after its battery dies.
 
-- **The person who needs help** taps SOS. Their phone broadcasts a small Bluetooth LE packet with their GPS position, their battery level, and the last sign of life the phone heard (speech, shouting, knocking or crying). The packet also has room for how many people are there and whether anyone is injured or trapped.
+- **The person who needs help** taps SOS. Their phone broadcasts a small Bluetooth LE packet with their GPS position, their battery level, and the last sign of life the phone heard (speech, shouting, knocking or crying), or crowd noise while it has heard none of those. The packet also has room for how many people are there and whether anyone is injured or trapped.
 - **Every Flarehop phone nearby** joins by itself, keeps a copy of every SOS it hears and reports its own battery. When a phone is about to die, the phone with the most charge takes over broadcasting its SOS, so the call for help outlives the phone that sent it.
 - **A rescuer** opens the same app, sees every SOS in range ranked by urgency, sends a receipt back ("A rescuer received your SOS"), and follows the signal to the phone with Track.
 
@@ -37,7 +37,7 @@ The app has three tabs:
 |---|---|
 | **Victim** | One big **SOS** button, then **Cancel SOS**. After sending it shows "SOS sent", "A rescuer received your SOS" once a rescuer answers, or "SOS handed on" with the phone that now sends it. Below that, the phones that can carry the SOS ("Connected: 2 phones", or "A rescuer has your signal" when only a rescuer has answered), and any other SOS nearby. The SOS goes out without a people count or conditions, so the victim has nothing to fill in. Once sent, the tab shows "You are phone 1A2B" in large type, so the victim can tell a rescuer which SOS is theirs. |
 | **Nearby** | A graph of the network as this phone knows it, with a status line: "Looking for an SOS close by", "1 SOS close by", or "Carrying the SOS of phone 1A2B" when this phone took one over. This phone sits in the middle and every other phone has a fixed place around it in phone ID order, so nothing jumps with the signal. Grey arrows are phones this phone hears, with their signal; dashed orange arrows go from a victim to the phone carrying its SOS; green arrows go from a rescuer to the SOS it answered. Below the graph, every phone with its part, battery, signal and rough distance. |
-| **Rescuer** | **Set yourself as rescuer** (after a confirm), then every SOS this phone hears, ranked by urgency, each card headed by the victim's phone ID ("Phone 1A2B"), with the last sound the victim's phone detected, distance, how long since the last signal, battery and signal strength. An SOS not heard for 2 minutes turns grey with **NOT HEARD** and moves below the live ones, still with its last details and Track. **Track** opens Track for one SOS. **Stop being a rescuer** switches back. |
+| **Rescuer** | **Set yourself as rescuer** (after a confirm), then every SOS this phone hears, ranked by urgency, each card headed by the victim's phone ID ("Phone 1A2B"), with the last sound the victim's phone detected and how many seconds ago ("Knocking, 12 s ago"), distance, how long since the last signal, battery and signal strength. An SOS not heard for 2 minutes turns grey with **NOT HEARD** and moves below the live ones, still with its last details and Track. **Track** opens Track for one SOS. **Stop being a rescuer** switches back. |
 
 There is no Log or Demo tab: every rule shows in plain words on the three tabs, and in logcat for developers.
 
@@ -142,13 +142,13 @@ app/src/main/
         ├── BatteryWatcher.kt   battery level every minute, with a demo override
         ├── YamnetListener.kt   microphone to the YAMNet model
         ├── SoundGate.kt        which sounds count: class, confidence and loudness
-        └── SignsOfLife.kt      when to listen, and the fake knock
+        └── SignsOfLife.kt      when to listen, the fake knock, and the last sound heard
 app/src/test/java/com/flarehop/
 ├── flare/      AdvertPlannerTest, MeshConflictTest, MeshGroupTest, MeshHandoffTest, MeshTakeoverTest, PacketCodecTest, RealFlareEngineTest, WakeRuleTest
 ├── handoff/    FakeRadio (several engines on an in-memory radio), RescueLoopTest, HandoffRulesTest
 ├── sense/      BatteryWatcherTest, PriorityScoreTest, SignsOfLifeTest, SoundGateTest
 └── ui/         FindTrackerTest, LocationEstimatorTest, PhoneLabelTest, SosHistoryTest, AnglesTest,
-                MeshGraphTest, DashboardRankingTest
+                MeshGraphTest, DashboardRankingTest, SoundTextTest
 app/src/androidTest/java/com/flarehop/
 └── sense/      YamnetLoadTest (runs on a phone)
 ```
@@ -219,7 +219,7 @@ The phone's **Location setting must be on** as well: with it off, Android delive
 You need two phones with Android 12 or newer, Bluetooth on and Location on.
 
 1. Install it on each phone: `./gradlew installDebug` with the phones connected over USB, or **Run** in Android Studio.
-2. Phone A: open Flarehop, allow every permission (Location: **Precise**), open **Victim** and tap **SOS**. The microphone now listens for signs of life, 5 seconds in every 15. To watch it, run `adb logcat -s YamnetListener`: every second it listens it logs the top sound, how loud it was, and what it sent (for example `Heard Knock 0.82, loudest -18.4 dBFS, sent KNOCK`).
+2. Phone A: open Flarehop, allow every permission (Location: **Precise**), open **Victim** and tap **SOS**. The microphone now listens for signs of life all the time, or 5 seconds in every 15 once the battery is below 30%, and Victim shows the last sound it heard ("Heard here: Knocking, 12 s ago"). To watch it, run `adb logcat -s YamnetListener`: every second it listens it logs the top three labels with their scores, how loud the loudest 50 ms was, and what it sent (for example `Heard Knock 0.67, Door 0.41, Silence 0.26 at -45 dBFS -> KNOCK`).
 3. Phone C: open Flarehop, allow every permission, open **Rescuer** and tap **Set yourself as rescuer**.
 4. Within a few seconds phone C lists the SOS with its urgency, battery and signal, and phone A shows "A rescuer received your SOS".
 5. On phone C, tap **Track** on the SOS and walk toward phone A: the needle leans to Warmer and the beeps speed up. Below, the SOS lists phone A as the victim and its history starts with "First heard".
@@ -289,7 +289,7 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | Test file | Checks |
 |---|---|
 | `AdvertPlannerTest` | When the advertiser starts, updates, skips an unchanged packet, pauses and resumes |
-| `PacketCodecTest` | Round trips for all four packet types, exact byte layout, no-fix value, caps at 254, unknown values as 255, and the drop rules, including zero IDs |
+| `PacketCodecTest` | Round trips for all four packet types, exact byte layout, no-fix value, caps at 254, unknown values as 255, crowd noise as sound code 5, the sound age exact to the second for two minutes and in minutes after, and the drop rules, including zero IDs |
 | `MeshGroupTest` | Joining when an SOS is heard, STANDBY every 5 seconds, never from a rescuer, the −70 dBm range, carried counts, dropping silent phones after 15 seconds, and three phones finding each other on a fake radio |
 | `MeshHandoffTest` | The handoff below 10% battery: the phone with the most battery wins, ties go to the lowest ID, unknown battery, weak signal and rescuers are never chosen, a carrier hands on everything it carries, the next phone is named after 30 seconds without an answer, the rescuer follows the new carrier with the victim's details, and cancel releases the carried copy |
 | `MeshTakeoverTest` | Takeover after silence: the copy keeps the victim's details and sound, a weaker phone waits 5 seconds more per stronger phone, a dead carrier is taken over too, the rescuer sees the new carrier, and rescuers, phones below 10%, far-away carriers and cancelled SOS are never taken over |
@@ -299,15 +299,16 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | `RealFlareEngineTest` | Sending an SOS, records for heard SOS, signal readings, dropped packets, receipts and the 15-second receipt window, acknowledgements, cancel, packet rotation and reset. Uses a fake clock, so no waiting |
 | `RescueLoopTest` | Survivor and rescuer engines on a fake radio: the rescuer hears the SOS with its signal strength, the victim gets the receipt, out-of-range phones hear nothing, cancel reaches the rescuer |
 | `HandoffRulesTest` | Contract 3's handoff rules on a fake radio, one test per rule: the strongest phone in range is named, ties, range, rescuers and unknown battery, the next phone after 30 seconds, a carrier hands on everything, the copy keeps the victim's data and sound with the carrier's battery, the SOS reaches phones the victim cannot reach, cancel, the last phone standing carrying every SOS, takeover after silence with the weaker phone standing down, and the carrier with less battery stopping when two carry one SOS |
-| `PriorityScoreTest` | The four score checks from Contract 5, the 10-minute sound window, and ties going to the SOS heard first |
+| `PriorityScoreTest` | The four score checks from Contract 5, the 10-minute sound window, crowd noise adding nothing, and ties going to the SOS heard first |
 | `BatteryWatcherTest` | Battery pushed at start and every minute, the demo override, unreadable levels, stop |
-| `SignsOfLifeTest` | The listening schedule, stopping below 15% battery, continuous listening, the fake knock |
-| `SoundGateTest` | Which YAMNet classes count, the 0.5 confidence floor, and the loudness floor |
+| `SignsOfLifeTest` | Listening all the time from 30% battery and 5 s in every 15 below it, stopping below 15% battery, continuous listening, the fake knock, the last sound heard for the victim's screen, and crowd noise never replacing a knock |
+| `SoundGateTest` | Which YAMNet classes count, crowd noise as its own label, the 0.3 confidence floor, knock labels adding up, and the −55 dBFS loudness floor |
 | `FindTrackerTest` | Track's meter from −90 to −40 dBm, beeps from 1500 ms down to 150 ms, averaging the last 10 readings, restarting on a new carrier, warmer or colder after a 3 dB change, and the dB change that leans the needle |
-| `SosHistoryTest` | Track's carriers and history: the first packet, a new carrier and the victim sending again, sounds heard again, a GPS fix and real moves only, battery in 10% steps, cancel, and keeping the newest 100 entries |
+| `SosHistoryTest` | Track's carriers and history: the first packet, a new carrier and the victim sending again, sounds heard again after a quiet minute but not every second of steady knocking, a GPS fix and real moves only, battery in 10% steps, cancel, and keeping the newest 100 entries |
 | `AnglesTest` | The arrow's angle math: wrapping, turning the short way across north, compass smoothing, and animating without spinning the long way round |
 | `MeshGraphTest` | The Nearby graph: phones heard with their signal, a victim heard directly or through its carrier, a carrier in the group drawn once as the carrier, silent and cancelled SOS left out, rescuers' receipts, SOS this phone carries or handed on, and fixed places in phone ID order |
 | `DashboardRankingTest` | The Rescuer list: live SOS ranked first, SOS not heard for 2 minutes below them most recent first, cancelled ones last, and only the newest SOS per victim |
+| `SoundTextTest` | The rescuer card's sound line: seconds since the victim's phone heard it, still counting between packets, then minutes |
 | `LocationEstimatorTest` | Distance from Bluetooth signal, GPS error from both phones' accuracy, old or rough fixes ignored, combining GPS and Bluetooth, and when the direction is unknown |
 | `PhoneLabelTest` | Phone IDs shown as four hex digits, keeping leading zeros, so the victim's screen and the rescuer's card match |
 

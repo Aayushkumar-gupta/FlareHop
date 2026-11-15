@@ -30,7 +30,7 @@ class PhoneNamesTest {
         fire = false,
         battery = null,
         sound = SoundType.NONE,
-        soundAgeMin = null,
+        soundAgeSec = null,
         firstHeardAt = firstHeardAt,
         lastHeardAt = firstHeardAt,
         lastRssi = -60,
