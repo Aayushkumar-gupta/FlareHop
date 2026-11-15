@@ -1,7 +1,9 @@
 package com.flarehop.flare
 
 import android.Manifest
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -33,6 +35,7 @@ class FlareService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        running = true
         advertiser = BleAdvertiser(this, Flare.engine)
         scanner = BleScanner(this, Flare.engine)
         battery = Flare.battery(this)
@@ -46,13 +49,11 @@ class FlareService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-        if (granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
-            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-        }
-        if (granted(Manifest.permission.RECORD_AUDIO)) {
-            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        }
+        val types = serviceTypes(
+            woken = intent?.getBooleanExtra(EXTRA_WOKEN, false) == true,
+            location = granted(Manifest.permission.ACCESS_FINE_LOCATION),
+            microphone = granted(Manifest.permission.RECORD_AUDIO),
+        )
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), types)
         battery.start(scope)
         advertiser.start(scope)
@@ -60,6 +61,7 @@ class FlareService : Service() {
             PackageManager.PERMISSION_GRANTED
         ) {
             scanner.start(scope)
+            WakeScan.arm(this)
         }
         if (soundJob == null) {
             soundJob = scope.launch {
@@ -85,6 +87,7 @@ class FlareService : Service() {
         listener.close()
         battery.stop()
         scope.cancel()
+        running = false
         super.onDestroy()
     }
 
@@ -112,6 +115,7 @@ class FlareService : Service() {
             .setContentTitle(getString(R.string.beacon_notification_title))
             .setContentText(getString(R.string.beacon_notification_text))
             .setOngoing(true)
+            .setContentIntent(openApp(this))
             .build()
     }
 
@@ -119,8 +123,43 @@ class FlareService : Service() {
         private const val CHANNEL_ID = "beacon"
         private const val NOTIFICATION_ID = 1
 
+        private const val EXTRA_WOKEN = "woken"
+
+        @Volatile
+        var running = false
+            private set
+
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, FlareService::class.java))
+        }
+
+        // Started by WakeReceiver with the app closed. If Android refuses a foreground service
+        // from the background, the notification asks for one tap instead.
+        fun wake(context: Context) {
+            val intent = Intent(context, FlareService::class.java).putExtra(EXTRA_WOKEN, true)
+            try {
+                ContextCompat.startForegroundService(context, intent)
+            } catch (_: ForegroundServiceStartNotAllowedException) {
+                WakeNotice.show(context)
+            }
+        }
+
+        // Android lets a service started from the background use location and the microphone
+        // only once the app is open, so a woken phone starts as a Bluetooth carrier only. Opening
+        // the app calls start() again, which adds the other types.
+        internal fun serviceTypes(woken: Boolean, location: Boolean, microphone: Boolean): Int {
+            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            if (woken) return types
+            if (location) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            if (microphone) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            return types
+        }
+
+        // Tapping the notification opens the app, where the owner can add their own SOS.
+        fun openApp(context: Context): PendingIntent? {
+            val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                ?: return null
+            return PendingIntent.getActivity(context, 0, launch, PendingIntent.FLAG_IMMUTABLE)
         }
 
         fun stop(context: Context) {

@@ -24,16 +24,6 @@ class BleScanner(private val context: Context, private val engine: FlareEngine) 
     private var warnedOff = false
     private var failedAtMs = 0L
 
-    private val filters = listOf(
-        ScanFilter.Builder()
-            .setManufacturerData(
-                COMPANY_ID,
-                byteArrayOf((PROTOCOL_VERSION shl 4).toByte()),
-                byteArrayOf(0xF0.toByte()),
-            )
-            .build(),
-    )
-
     private val settings = ScanSettings.Builder()
         .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
         .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
@@ -85,14 +75,25 @@ class BleScanner(private val context: Context, private val engine: FlareEngine) 
         if (scanner != null) return
         if (System.currentTimeMillis() - failedAtMs < RETRY_AFTER_FAILURE_MS) return
         val leScanner = adapter.bluetoothLeScanner ?: return
-        leScanner.startScan(filters, settings, callback)
+        leScanner.startScan(FILTERS, settings, callback)
         scanner = leScanner
         Log.i(TAG, "Scanning started")
     }
 
-    private companion object {
-        const val TAG = "FlareScanner"
-        const val CHECK_INTERVAL_MS = 2_000L
-        const val RETRY_AFTER_FAILURE_MS = 30_000L
+    companion object {
+        // Flarehop packets only: company ID 0xFFFF and protocol version 2 in the first nibble.
+        val FILTERS: List<ScanFilter> = listOf(
+            ScanFilter.Builder()
+                .setManufacturerData(
+                    COMPANY_ID,
+                    byteArrayOf((PROTOCOL_VERSION shl 4).toByte()),
+                    byteArrayOf(0xF0.toByte()),
+                )
+                .build(),
+        )
+
+        private const val TAG = "FlareScanner"
+        private const val CHECK_INTERVAL_MS = 2_000L
+        private const val RETRY_AFTER_FAILURE_MS = 30_000L
     }
 }

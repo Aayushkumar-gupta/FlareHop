@@ -3,4 +3,7 @@
     <string name="beacon_channel_name">Beacon</string>
     <string name="beacon_notification_title">Flarehop is on</string>
     <string name="beacon_notification_text">Broadcasting over Bluetooth</string>
+    <string name="wake_channel_name">SOS nearby</string>
+    <string name="wake_notification_title">SOS nearby</string>
+    <string name="wake_notification_text">Tap to help carry it to a rescuer</string>
 </resources>
