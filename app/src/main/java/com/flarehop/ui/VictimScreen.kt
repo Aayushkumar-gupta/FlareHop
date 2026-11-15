@@ -97,6 +97,7 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
     val group by engine.group.collectAsState()
     val known by engine.knownSos.collectAsState()
     val gps by flare.locationReader.location.collectAsState()
+    val names by flare.names.collectAsState()
     val now = rememberNow()
 
     val mine = mySos ?: return
@@ -114,7 +115,9 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
         .filter { !it.cancelled && it.originId != record.originId }
         .groupBy { it.originId }
         .map { (_, copies) -> copies.maxBy { it.firstHeardAt } }
-        .sortedByDescending { it.lastHeardAt }
+        // Survivor 1, 2, 3 in the order first heard. Sorting by last heard would reshuffle the
+        // cards with every packet.
+        .sortedBy { names.survivorNumber(it.originId) ?: Int.MAX_VALUE }
 
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
@@ -135,19 +138,10 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
                 textAlign = TextAlign.Center,
             )
         }
-        // A rescuer's card is headed by the same ID, so the victim can tell them which one is theirs.
-        item {
-            Text(
-                text = "You are phone ${phoneLabel(record.originId)}",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-            )
-        }
         if (mine.status == SosStatus.HANDED_OFF) {
             item {
                 Text(
-                    text = "Phone ${phoneLabel(record.carrierId)} keeps sending your SOS.",
+                    text = "${names.phone(record.carrierId)} keeps sending your SOS.",
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
                 )
@@ -170,8 +164,13 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
                 )
             }
         }
-        items(survivors, key = { it.messageId }) { survivor ->
-            SurvivorCard(record = survivor, here = here, now = now)
+        items(survivors, key = { it.originId }) { survivor ->
+            SurvivorCard(
+                record = survivor,
+                name = names.survivor(survivor.originId),
+                here = here,
+                now = now,
+            )
         }
     }
 }
@@ -231,14 +230,14 @@ private fun LowBatteryLine(status: SosStatus, battery: Int?, phonesNearby: Int) 
 }
 
 @Composable
-private fun SurvivorCard(record: SosRecord, here: Position?, now: Long) {
+private fun SurvivorCard(record: SosRecord, name: String, here: Position?, now: Long) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                text = "Survivor ${phoneLabel(record.originId)}",
+                text = name,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
@@ -252,7 +251,7 @@ private fun SurvivorCard(record: SosRecord, here: Position?, now: Long) {
                 style = MaterialTheme.typography.bodyLarge,
             )
             Text(
-                text = "Last signal ${((now - record.lastHeardAt) / 1_000).coerceAtLeast(0)}s ago",
+                text = "Last signal ${agoText(now - record.lastHeardAt)}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

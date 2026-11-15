@@ -11,18 +11,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.flarehop.flare.GroupMember
 import com.flarehop.flare.Role
@@ -39,11 +42,13 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
     val known by engine.knownSos.collectAsState()
     val carried by engine.carried.collectAsState()
     val group by engine.group.collectAsState()
-    val gps by flare.locationReader.location.collectAsState()
+    val points by flare.points.collectAsState()
+    val names by flare.names.collectAsState()
+    val signals by flare.signals.collectAsState()
+    var threeD by rememberSaveable { mutableStateOf(false) }
 
     val myRecord = mySos?.record
     val myId = myRecord?.originId
-    val here = gps?.toGpsFix() ?: myRecord?.let(::fixOf)
 
     val activeSos = known.filter { !it.cancelled && it.originId != myId }
     // Group phones send no location, so they are placed by signal only.
@@ -52,13 +57,13 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
         LocationEstimator.estimate(gps = null, bluetooth = bluetooth)?.let {
             RadarBlip(
                 phoneId = member.phoneId,
-                label = phoneText(member),
+                label = phoneText(member, names),
                 estimate = it,
                 isSos = false,
             )
         }
     }
-    val sosBlips = activeSos.mapNotNull { sosBlip(it, here) }
+    val sosBlips = activeSos.mapNotNull { sosBlip(it, points[it.messageId], names, signals[it.messageId]) }
     val blips = (sosBlips + phoneBlips).distinctBy { it.phoneId }
 
     val status = when {
@@ -66,7 +71,7 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
 
         carried.isNotEmpty() ->
             "Carrying the SOS of " +
-                carried.joinToString { "phone ${phoneLabel(it.originId)}" }
+                carried.joinToString { names.survivor(it.originId) }
 
         mySos?.status == SosStatus.SENDING -> "Sending your own SOS"
 
@@ -78,7 +83,11 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        RadarView(blips = blips, modifier = Modifier.fillMaxSize())
+        if (threeD) {
+            VerticalRadarView(blips = blips, modifier = Modifier.fillMaxSize())
+        } else {
+            RadarView(blips = blips, modifier = Modifier.fillMaxSize())
+        }
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -95,11 +104,17 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
                     modifier = Modifier.weight(1f),
                 ) {
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                        Text(
-                            text = status,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = status,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                            )
+                            OutlinedButton(onClick = { threeD = !threeD }) {
+                                Text(if (threeD) "2D" else "3D")
+                            }
+                        }
                         if (role != Role.RESCUER) {
                             Text(
                                 text = if (group.size == 1) {
@@ -114,24 +129,6 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
                 }
             }
         }
-        RadarLegend(Modifier.align(Alignment.BottomCenter).padding(16.dp))
-    }
-}
-
-@Composable
-private fun RadarLegend(modifier: Modifier = Modifier) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-        modifier = modifier,
-    ) {
-        Text(
-            text = "● best estimate   ○ direction unknown\n" +
-                "□ GPS position   - - - Bluetooth distance",
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-        )
     }
 }
 
@@ -172,31 +169,13 @@ private fun needle(center: Offset, length: Float, halfWidth: Float, pointsUp: Bo
 
 private const val COMPASS_SIZE = 52
 
-private fun sosBlip(record: SosRecord, here: GpsFix?): RadarBlip? {
-    val gps = here?.let { h -> fixOf(record)?.let { LocationEstimator.gps(h, it) } }
-    val handedOff = record.carrierId != record.originId
-    // After a handoff the GPS point is still the victim's but the signal comes from the carrier,
-    // which may be somewhere else, so the two only mix while the victim's own phone is sending.
-    val bluetooth = record.lastRssi
-        ?.takeIf { !handedOff || gps == null }
-        ?.let(LocationEstimator::bluetooth)
-    val estimate = LocationEstimator.estimate(gps, bluetooth) ?: return null
-    val carrier = if (handedOff) " via ${phoneLabel(record.carrierId)}" else ""
-    return RadarBlip(
-        phoneId = record.originId,
-        label = "SOS ${phoneLabel(record.originId)}$carrier",
-        estimate = estimate,
-        isSos = true,
-    )
-}
-
 fun fixOf(record: SosRecord): GpsFix? {
     val lat = record.latitude ?: return null
     val lon = record.longitude ?: return null
     return GpsFix(lat, lon, record.accuracyM?.toDouble(), record.fixAgeMin ?: 0)
 }
 
-private fun phoneText(member: GroupMember): String {
+private fun phoneText(member: GroupMember, names: PhoneNames): String {
     val battery = member.battery?.let { ", $it%" } ?: ""
-    return "Phone ${phoneLabel(member.phoneId)}$battery"
+    return "${names.phone(member.phoneId)}$battery"
 }
