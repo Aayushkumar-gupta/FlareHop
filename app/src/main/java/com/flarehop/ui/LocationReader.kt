@@ -16,21 +16,28 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class LocationReader(private val context: Context, scope: CoroutineScope) {
+    private enum class Access { NONE, APPROXIMATE, PRECISE }
+
     private val manager = context.getSystemService(LocationManager::class.java)
     private val listener = LocationListener { offer(it) }
-    private var started = false
+    private var listening = Access.NONE
 
     private val _location = MutableStateFlow<Location?>(null)
     val location: StateFlow<Location?> = _location.asStateFlow()
 
     init {
-        // The permission dialog opens at app start, so the answer can come after this runs.
+        // The permission dialog opens at app start, so the answer can come after this runs,
+        // and the user can later switch Approximate to Precise in Settings.
         scope.launch {
-            while (!hasPermission()) delay(PERMISSION_CHECK_MS)
-            start()
+            while (isActive) {
+                val access = access()
+                if (access != listening) listen(access)
+                delay(PERMISSION_CHECK_MS)
+            }
         }
     }
 
@@ -46,13 +53,21 @@ class LocationReader(private val context: Context, scope: CoroutineScope) {
     }
 
     fun stop() {
-        if (started) manager.removeUpdates(listener)
-        started = false
+        if (listening != Access.NONE) manager.removeUpdates(listener)
+        listening = Access.NONE
     }
 
+    // The GPS provider throws a SecurityException without precise location, so with
+    // Approximate only the network provider is used.
     @SuppressLint("MissingPermission")
-    private fun start() {
-        PROVIDERS.filter { it in manager.allProviders }.forEach { provider ->
+    private fun listen(access: Access) {
+        stop()
+        val providers = when (access) {
+            Access.NONE -> return
+            Access.APPROXIMATE -> listOf(LocationManager.NETWORK_PROVIDER)
+            Access.PRECISE -> listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        }
+        providers.filter { it in manager.allProviders }.forEach { provider ->
             manager.getLastKnownLocation(provider)?.let(::offer)
             manager.requestLocationUpdates(
                 provider,
@@ -62,7 +77,7 @@ class LocationReader(private val context: Context, scope: CoroutineScope) {
                 Looper.getMainLooper(),
             )
         }
-        started = true
+        listening = access
     }
 
     private fun offer(next: Location) {
@@ -81,15 +96,16 @@ class LocationReader(private val context: Context, scope: CoroutineScope) {
         }
     }
 
-    private fun hasPermission(): Boolean = listOf(
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.ACCESS_COARSE_LOCATION,
-    ).any {
-        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    private fun access(): Access = when {
+        granted(Manifest.permission.ACCESS_FINE_LOCATION) -> Access.PRECISE
+        granted(Manifest.permission.ACCESS_COARSE_LOCATION) -> Access.APPROXIMATE
+        else -> Access.NONE
     }
+
+    private fun granted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 }
 
-private val PROVIDERS = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
 private const val UPDATE_MS = 5_000L
 private const val STALE_MS = 120_000L
 private const val PERMISSION_CHECK_MS = 2_000L
