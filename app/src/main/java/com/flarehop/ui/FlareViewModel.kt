@@ -7,6 +7,7 @@ import com.flarehop.flare.Flare
 import com.flarehop.flare.FlareEngine
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosDetails
+import com.flarehop.sense.HeardSound
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +24,10 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
 
     // The beacon service runs the microphone and says here whether it is listening.
     val listening: StateFlow<Boolean> = Flare.listening
+
+    // The SOS carries the sound's age in whole minutes, so this phone's own screen reads the exact
+    // time of the last sound from the listener instead.
+    val heardSound: StateFlow<HeardSound?> = Flare.signsOfLife(application).lastHeard
 
     private val roleStore = RoleStore(application)
 

@@ -1,6 +1,6 @@
 package com.flarehop.flare
 
-enum class SoundType { NONE, SPEECH, SHOUT, KNOCK, CRYING }
+enum class SoundType { NONE, SPEECH, SHOUT, KNOCK, CRYING, CROWD }
 
 data class SosDetails(
     val people: Int,
@@ -34,7 +34,7 @@ data class SosRecord(
     val fire: Boolean,
     val battery: Int?,
     val sound: SoundType,
-    val soundAgeMin: Int?,
+    val soundAgeSec: Int?,
     val firstHeardAt: Long,
     val lastHeardAt: Long,
     val lastRssi: Int?,

@@ -85,16 +85,12 @@ class LocationReader(private val context: Context, scope: CoroutineScope) {
         if (current == null || isBetter(next, current)) _location.value = next
     }
 
-    // A much newer fix always wins, because the old one may be from before the phone moved.
-    // Close in time, the more accurate one wins, so a rough network fix cannot replace GPS.
-    private fun isBetter(next: Location, current: Location): Boolean {
-        val newerBy = next.time - current.time
-        return when {
-            newerBy > STALE_MS -> true
-            newerBy < -STALE_MS -> false
-            else -> next.accuracy <= current.accuracy
-        }
-    }
+    private fun isBetter(next: Location, current: Location): Boolean = fixIsBetter(
+        newerByMs = next.time - current.time,
+        sameSource = next.provider == current.provider,
+        nextAccuracyM = next.accuracy,
+        currentAccuracyM = current.accuracy,
+    )
 
     private fun access(): Access = when {
         granted(Manifest.permission.ACCESS_FINE_LOCATION) -> Access.PRECISE
@@ -104,6 +100,23 @@ class LocationReader(private val context: Context, scope: CoroutineScope) {
 
     private fun granted(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+}
+
+// A much newer fix always wins, because the old one may be from before the phone moved. Close in
+// time, the newest fix from the same source wins: GPS reports every 5 s with accuracy that
+// wobbles by a few metres, and keeping only the most accurate one froze a moving phone's position
+// for up to 2 minutes. A fix from another source wins only when it is more accurate, so a rough
+// network fix cannot replace GPS.
+fun fixIsBetter(
+    newerByMs: Long,
+    sameSource: Boolean,
+    nextAccuracyM: Float,
+    currentAccuracyM: Float,
+): Boolean = when {
+    newerByMs > STALE_MS -> true
+    newerByMs < -STALE_MS -> false
+    sameSource -> newerByMs > 0
+    else -> nextAccuracyM <= currentAccuracyM
 }
 
 // The rescuer's own position in the form the location estimate takes.
