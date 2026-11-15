@@ -163,8 +163,8 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
 
     val here = gps?.let { Position(it.latitude, it.longitude) }
 
-    val (active, cancelled) = rankForDashboard(records, now)
-    val newest = active + cancelled
+    val (active, stale, cancelled) = rankForDashboard(records, now)
+    val newest = active + stale + cancelled
 
     Column(modifier.fillMaxSize()) {
         DashboardHeader(activeCount = active.size, onStop = flare::stopRescuing)
@@ -181,6 +181,18 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
                         names = names,
                         rssi = signals[record.messageId] ?: record.lastRssi,
                         rank = index + 1,
+                        now = now,
+                        here = here,
+                        onFind = { flare.find(record.messageId) },
+                    )
+                }
+                // Still trackable: the last position and carrier may lead to the victim.
+                itemsIndexed(stale, key = { _, it -> it.originId }) { _, record ->
+                    SosCard(
+                        record = record,
+                        names = names,
+                        rssi = signals[record.messageId] ?: record.lastRssi,
+                        rank = null,
                         now = now,
                         here = here,
                         onFind = { flare.find(record.messageId) },
@@ -280,11 +292,12 @@ private fun SosCard(
     onFind: (() -> Unit)?,
 ) {
     val band = band(record, now)
-    val stripe = if (record.cancelled) MaterialTheme.colorScheme.outline else bandColor(band)
+    val dimmed = record.cancelled || isStale(record, now)
+    val stripe = if (dimmed) MaterialTheme.colorScheme.outline else bandColor(band)
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (record.cancelled) CANCELLED_ALPHA else 1f),
+            .alpha(if (dimmed) DIMMED_ALPHA else 1f),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Row(Modifier.height(IntrinsicSize.Min)) {
@@ -298,7 +311,7 @@ private fun SosCard(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                CardTop(record = record, band = band, rank = rank)
+                CardTop(record = record, band = band, rank = rank, stale = isStale(record, now))
                 Text(
                     text = names.survivor(record.originId),
                     style = MaterialTheme.typography.headlineSmall,
@@ -327,7 +340,7 @@ private fun SosCard(
 }
 
 @Composable
-private fun CardTop(record: SosRecord, band: PriorityBand, rank: Int?) {
+private fun CardTop(record: SosRecord, band: PriorityBand, rank: Int?, stale: Boolean) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -335,6 +348,8 @@ private fun CardTop(record: SosRecord, band: PriorityBand, rank: Int?) {
     ) {
         if (record.cancelled) {
             Pill(text = "CANCELLED", color = MaterialTheme.colorScheme.outline)
+        } else if (stale) {
+            Pill(text = "NOT HEARD", color = MaterialTheme.colorScheme.outline)
         } else {
             Pill(text = bandName(band).uppercase(Locale.US), color = bandColor(band))
         }
@@ -472,16 +487,30 @@ fun signalText(rssi: Int?): String {
     return "$rssi dBm, $word"
 }
 
-data class DashboardRanking(val active: List<SosRecord>, val cancelled: List<SosRecord>)
+data class DashboardRanking(
+    val active: List<SosRecord>,
+    val stale: List<SosRecord>,
+    val cancelled: List<SosRecord>,
+)
+
+// An SOS not heard for this long is out of range or its phone is off. It stays on the list,
+// greyed, below the live ones, so its last position and carrier are not lost, but old SOS from
+// earlier runs no longer sit among the live ones.
+const val STALE_AFTER_MS = 120_000L
+
+fun isStale(record: SosRecord, now: Long): Boolean = now - record.lastHeardAt >= STALE_AFTER_MS
 
 // Contract 2: a changed SOS arrives with a new message ID, so only the newest per victim is
-// kept. Active ones are ranked by Contract 5; cancelled ones go last, most recent first.
+// kept. Live ones are ranked by Contract 5; then the ones not heard lately, then cancelled ones,
+// each most recently heard first.
 fun rankForDashboard(records: List<SosRecord>, now: Long): DashboardRanking {
     val newest = records
         .groupBy { it.originId }
         .map { (_, copies) -> copies.maxBy { it.firstHeardAt } }
+    val open = newest.filter { !it.cancelled }
     return DashboardRanking(
-        active = newest.filter { !it.cancelled }.sortedWith(PriorityScore.mostUrgentFirst(now)),
+        active = open.filter { !isStale(it, now) }.sortedWith(PriorityScore.mostUrgentFirst(now)),
+        stale = open.filter { isStale(it, now) }.sortedByDescending { it.lastHeardAt },
         cancelled = newest.filter { it.cancelled }.sortedByDescending { it.lastHeardAt },
     )
 }
@@ -496,5 +525,5 @@ private val LISTENING_GREEN = Color(0xFF2E7D32)
 
 private const val CLOCK_TICK_MS = 1_000L
 private const val PULSE_MS = 900
-private const val CANCELLED_ALPHA = 0.55f
+private const val DIMMED_ALPHA = 0.55f
 private const val INFO_LABEL_WIDTH = 72

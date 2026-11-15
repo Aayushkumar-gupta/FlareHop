@@ -44,7 +44,7 @@ class RealFlareEngine(
     override val directSignal: SharedFlow<DirectSignal> = signals.asSharedFlow()
     override val log: SharedFlow<LogEvent> = events.asSharedFlow()
 
-    var phoneId: Int = newPhoneId()
+    override var phoneId: Int = newPhoneId()
         private set
 
     private var role = Role.SURVIVOR

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.flarehop.flare.Flare
 import com.flarehop.flare.FlareEngine
+import com.flarehop.flare.LogType
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosDetails
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,6 +60,10 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
     private val _signals = MutableStateFlow<Map<Long, Int>>(emptyMap())
     val signals: StateFlow<Map<Long, Int>> = _signals.asStateFlow()
 
+    // Which rescuer answered each SOS, for the Nearby graph. The engine only says so in its log.
+    private val _receiptsBy = MutableStateFlow<Map<Long, Int>>(emptyMap())
+    val receiptsBy: StateFlow<Map<Long, Int>> = _receiptsBy.asStateFlow()
+
     init {
         engine.setRole(_role.value)
         // Every new fix goes into this phone's SOS, so one sent before GPS locked on still gets
@@ -91,6 +96,13 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             engine.directSignal.collect { signal ->
                 _signals.value = _signals.value + (signal.messageId to smoother.add(signal))
+            }
+        }
+        viewModelScope.launch {
+            engine.log.collect { event ->
+                if (event.type == LogType.RECEIPT_MATCHED) {
+                    _receiptsBy.value = _receiptsBy.value + (event.messageId to event.phoneId)
+                }
             }
         }
     }

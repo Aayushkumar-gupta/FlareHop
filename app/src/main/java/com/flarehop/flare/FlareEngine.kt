@@ -40,6 +40,9 @@ data class LogEvent(
 )
 
 interface FlareEngine {
+    // This phone's random ID for the session; reset picks a new one.
+    val phoneId: Int
+
     val mySos: StateFlow<MySos?>
     val knownSos: StateFlow<List<SosRecord>>
     val carried: StateFlow<List<SosRecord>>
