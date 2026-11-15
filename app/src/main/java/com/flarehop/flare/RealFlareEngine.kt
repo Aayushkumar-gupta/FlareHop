@@ -1,7 +1,10 @@
 package com.flarehop.flare
 
 import com.flarehop.flare.FlareConstants.CANCEL_ADVERT_MS
+import com.flarehop.flare.FlareConstants.IN_RANGE_MS
+import com.flarehop.flare.FlareConstants.JOIN_RSSI_DBM
 import com.flarehop.flare.FlareConstants.RECEIPT_KEEP_MS
+import com.flarehop.flare.FlareConstants.STANDBY_INTERVAL_MS
 import kotlin.random.Random
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -50,6 +53,12 @@ class RealFlareEngine(
     private var cancel: HandoffPacket? = null
     private var cancelUntilMs = 0L
     private var rotation = 0
+    private val neighbours = LinkedHashMap<Int, Neighbour>()
+    private var lastStandbyMs: Long? = null
+
+    private class Neighbour(var battery: Int?, var rssi: Int, var lastHeardAt: Long) {
+        val carrying = HashMap<Long, Long>()
+    }
 
     override fun onPacket(bytes: ByteArray, rssi: Int, atMs: Long) {
         synchronized(lock) {
@@ -60,7 +69,7 @@ class RealFlareEngine(
                     is SosPacket -> onSos(packet, rssi, atMs)
                     is ReceiptPacket -> onReceipt(packet, atMs)
                     is HandoffPacket -> if (packet.successorId == 0) onCancel(packet, atMs)
-                    is StandbyPacket -> Unit
+                    is StandbyPacket -> onStandby(packet, rssi, atMs)
                 }
             }
         }
@@ -136,6 +145,7 @@ class RealFlareEngine(
         synchronized(lock) {
             val now = clock()
             if (cancel != null && now >= cancelUntilMs) cancel = null
+            publishGroup(now)
             val packets = buildList {
                 mySosState.value
                     ?.takeIf { it.status == SosStatus.SENDING }
@@ -146,6 +156,7 @@ class RealFlareEngine(
                     if (now - heard <= RECEIPT_KEEP_MS) add(receipt)
                 }
             }
+            standbyDue(now, nothingElse = packets.isEmpty())?.let { return PacketCodec.encode(it) }
             if (packets.isEmpty()) return null
             val packet = packets[rotation % packets.size]
             rotation++
@@ -161,6 +172,8 @@ class RealFlareEngine(
             sentAtMs = 0L
             records.clear()
             receipts.clear()
+            neighbours.clear()
+            lastStandbyMs = null
             cancel = null
             cancelUntilMs = 0L
             rotation = 0
@@ -198,6 +211,7 @@ class RealFlareEngine(
         )
         publishRecords()
         if (existing == null) emit(LogType.HEARD, packet.messageId, packet.carrierId, atMs)
+        hearNeighbour(packet.carrierId, packet.battery, rssi, atMs, packet.messageId)
         signals.tryEmit(DirectSignal(packet.messageId, packet.carrierId, rssi, atMs))
         if (role == Role.RESCUER && packet.messageId !in receipts) {
             receipts[packet.messageId] = ReceiptPacket(
@@ -207,6 +221,66 @@ class RealFlareEngine(
             )
             emit(LogType.RECEIPT_SENT, packet.messageId, phoneId, atMs)
         }
+    }
+
+    private fun standbyDue(now: Long, nothingElse: Boolean): StandbyPacket? {
+        val mine = mySosState.value?.record
+        val inMesh = role == Role.SURVIVOR && (mine != null || records.values.any { !it.cancelled })
+        if (!inMesh) {
+            lastStandbyMs = null
+            return null
+        }
+        val last = lastStandbyMs
+        val due = nothingElse || (last != null && now - last >= STANDBY_INTERVAL_MS)
+        if (last == null) lastStandbyMs = now
+        if (!due) return null
+        lastStandbyMs = now
+        return StandbyPacket(
+            messageId = mine?.messageId ?: 0L,
+            originId = mine?.originId ?: 0,
+            standbyId = phoneId,
+            battery = battery,
+        )
+    }
+
+    private fun onStandby(packet: StandbyPacket, rssi: Int, atMs: Long) {
+        hearNeighbour(packet.standbyId, packet.battery, rssi, atMs, carriedMessageId = null)
+    }
+
+    private fun hearNeighbour(
+        id: Int,
+        battery: Int?,
+        rssi: Int,
+        atMs: Long,
+        carriedMessageId: Long?,
+    ) {
+        if (id == phoneId || rssi < JOIN_RSSI_DBM) return
+        val neighbour = neighbours[id]
+        if (neighbour == null) {
+            neighbours[id] = Neighbour(battery, rssi, atMs)
+            emit(LogType.JOINED, carriedMessageId ?: 0L, id, atMs)
+        } else {
+            neighbour.battery = battery
+            neighbour.rssi = rssi
+            neighbour.lastHeardAt = atMs
+        }
+        if (carriedMessageId != null) neighbours.getValue(id).carrying[carriedMessageId] = atMs
+        publishGroup(atMs)
+    }
+
+    private fun publishGroup(now: Long) {
+        neighbours.values.removeAll { now - it.lastHeardAt > IN_RANGE_MS }
+        val members = neighbours.map { (id, neighbour) ->
+            neighbour.carrying.values.removeAll { now - it > IN_RANGE_MS }
+            GroupMember(
+                phoneId = id,
+                battery = neighbour.battery,
+                rssi = neighbour.rssi,
+                lastHeardAt = neighbour.lastHeardAt,
+                carriedCount = neighbour.carrying.size,
+            )
+        }
+        if (members != groupState.value) groupState.value = members
     }
 
     private fun onReceipt(packet: ReceiptPacket, atMs: Long) {

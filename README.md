@@ -1,10 +1,10 @@
 # FlareHop
 
-FlareHop turns a trapped person's phone into a rescue beacon that keeps calling after its battery dies. It needs no cell towers, no internet and no pairing.
+FlareHop is a rescue app for Android that works with no cell towers, no internet and no pairing. A trapped person taps SOS once, and their phone keeps calling for help over Bluetooth, even after its battery dies.
 
-- The victim taps SOS once. Their phone broadcasts a small Bluetooth LE packet with the SOS details and GPS position, and listens for signs of life such as knocking or voices.
-- A nearby phone stands by and takes the SOS over before the victim's battery dies, or after 15 seconds of silence. The SOS keeps its ID and the victim's position.
-- A rescuer's phone lists every SOS it hears, ranked by urgency, sends a receipt back to the victim, and leads the rescuer to the phone with a signal-strength meter (Find mode).
+- **The person who needs help** taps SOS. Their phone broadcasts a small Bluetooth LE packet with their GPS position, how many people are with them, whether anyone is injured or trapped, their battery level, and the last sign of life the phone heard (speech, shouting, knocking or crying).
+- **Every Flarehop phone nearby** joins by itself, keeps a copy of every SOS it hears and reports its own battery. When a phone is about to die, the phone with the most charge takes over broadcasting its SOS, so the call for help outlives the phone that sent it.
+- **A rescuer** opens the same app, sees every SOS in range ranked by urgency, sends a receipt back ("A rescuer received your SOS"), and follows the signal to the phone with Find mode.
 
 Phones never connect to each other. Every phone only broadcasts and listens, the way avalanche beacons work.
 
@@ -12,20 +12,33 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 
 ## Status
 
-| Step | What it adds | State |
+| Part | What it does | State |
 |---|---|---|
-| Dependencies | Coroutines, ViewModel, MediaPipe audio, coroutines-test | Done |
-| Skeleton | `SosRecord`, the `FlareEngine` interface, shared constants | Done |
-| Packet codec | Encode and decode the four 24-byte packet types | Done |
-| Flare engine | SOS records, receipts, signal readings, event log, session ID, cancel | Done |
-| Advertiser | Bluetooth LE broadcast, foreground service, radio test screen | Done |
-| Scanner | Hear other phones' packets and pass them to the engine | Done |
-| Priority score | Rank SOS records by urgency (Contract 5) | Done |
-| Handoff rules | Standby, planned handoff, takeover, two-carrier conflict | Next (tests already written) |
-| Screens | Role picker, SOS screen, rescuer dashboard, Find mode | Planned |
-| Signs of life | On-device sound detection with YAMNet | Planned |
+| Packet codec | Encodes and decodes the four 24-byte packet types and drops bad ones | Done |
+| Flare engine | SOS records, receipts, signal readings, event log, cancel | Done |
+| Radio | Bluetooth LE broadcast and scan in a foreground service | Done |
+| Battery watcher | Reports the phone's battery to the engine every minute | Done |
+| Phones find each other | Phones near an SOS join by themselves and report their battery; every phone lists the phones in range | Done |
+| Handoff | Hand every SOS to the phone with the most battery, take over after silence, two-carrier conflict | Next |
+| Screens | Survivor, Rescuer, Find mode, Log, Demo settings | Done |
+| Priority score | Ranks every SOS by urgency | Done |
+| Signs of life | On-device sound detection with YAMNet while the app is open | Done (in the background: next) |
+| Auto-join with the app closed | The app wakes when it hears an SOS | Planned |
 
-The app has two tabs: **Survivor** (send or cancel an SOS, and see the phones around you) and **Rescuer** (every SOS this phone hears, ranked by urgency). Two Flarehop phones hear each other: a rescuer phone sends a receipt, and the survivor phone shows "A rescuer received your SOS". The design is moving to a mesh, where every phone keeps a copy of every SOS; the engine has the new interface for it, and the rules come next.
+## Using the app
+
+The app has four tabs:
+
+| Tab | What it shows |
+|---|---|
+| **Survivor** | People count and conditions (injured, trapped, medical, water rising, fire), **Send SOS** and **Cancel SOS**, a radar of the phones around you, and "A rescuer received your SOS" once a rescuer answers |
+| **Rescuer** | **Set yourself as rescuer**, then every SOS this phone hears, ranked by urgency, with distance, battery, signal and last sound. **Find** opens Find mode for one SOS. **Stop being a rescuer** switches back. |
+| **Log** | Every radio event on this phone: SOS heard, phone joined, receipt sent, cancelled |
+| **Demo** | Override battery, Fake a knock, Listen continuously, Keep screen on, Reset this phone |
+
+Find mode follows the selected SOS's Bluetooth signal: a meter, a warmer or colder arrow, and beeps that speed up as you get closer. It averages the last 10 readings and shows "Signal lost" after 5 seconds without one.
+
+A red banner on the Survivor and Rescuer tabs explains anything that stops the radio: Nearby devices not allowed, Location set to Approximate, Bluetooth off or Location off, each with a button to the right Settings page.
 
 ## How it works
 
@@ -33,46 +46,56 @@ Every message is exactly 24 bytes, sent as manufacturer data under company ID `0
 
 | Type | Sent by | Carries |
 |---|---|---|
-| SOS | The phone carrying the SOS | Message ID, origin and carrier phone IDs, position, accuracy, fix age, people count, injured / trapped / water / medical / fire flags, battery, last sound heard |
+| SOS | The phone broadcasting that SOS | Message ID, origin and carrier phone IDs, position, accuracy, fix age, people count, injured / trapped / water / medical / fire flags, the broadcasting phone's battery, the victim's last sound |
 | RECEIPT | A rescuer phone | The message ID it heard |
-| STANDBY | A nearby phone backing up an SOS | The SOS IDs and its own battery |
-| HANDOFF | The carrier | The phone taking over, or 0 to cancel |
+| STANDBY | Every phone except a rescuer, every 5 seconds, once there is an SOS around | Its phone ID and battery, and its own SOS's IDs if it has one |
+| HANDOFF | A phone handing an SOS on | The phone taking over, or 0 to cancel |
 
-A missing GPS fix is sent as the smallest 32-bit number, never as 0,0. Packets with the wrong length, version, type or an impossible position are dropped.
+A missing GPS fix is sent as the smallest 32-bit number, never as 0,0. Packets with the wrong length, version or type, an impossible position, or a zero ID where one is required are dropped.
 
-The flare engine is the only part of the app that talks to the radio. Screens call its actions (`sendSos`, `cancelSos`, `setRole`, `setBattery`, `setSound`, `reset`) and watch its streams (`mySos`, `knownSos`, `group`, `directSignal`, `log`). Each phone picks a new random ID every session, and a rescuer phone sends one receipt for every SOS it hears.
+A phone counts another phone as in range when it heard it at −70 dBm or stronger in the last 15 seconds. The engine lists those phones with their battery and how many SOS each is broadcasting, which the handoff uses to pick the phone with the most charge.
+
+The flare engine is the only part of the app that talks to the radio. Screens call its actions (`sendSos`, `cancelSos`, `setRole`, `setBattery`, `setSound`, `reset`) and watch its streams (`mySos`, `knownSos`, `carried`, `group`, `directSignal`, `log`).
 
 ## Code layout
 
 ```
-app/src/main/java/com/flarehop/
-├── MainActivity.kt       temporary radio test screen
-├── flare/                 radio and handoff code (Project lead)
-│   ├── FlareConstants.kt  packet values, timings and thresholds
-│   ├── SosRecord.kt       SosRecord, SosDetails, Fix, SoundType
-│   ├── FlareEngine.kt     the engine interface the screens use
-│   ├── PacketCodec.kt     24-byte packet encode and decode
-│   ├── RealFlareEngine.kt the engine: records, receipts, signals, log
-│   ├── Flare.kt           the one engine instance the app shares
-│   ├── AdvertPlanner.kt   decides when to start, update, pause or resume the advert
-│   ├── BleAdvertiser.kt   broadcasts the engine's packets every 300 ms
-│   ├── BleScanner.kt      hears Flarehop packets and hands them to the engine
-│   └── FlareService.kt    foreground service that keeps the beacon on
-├── ui/                    screens (App lead)
-│   └── theme/
-└── sense/                 sound, location, battery, priority score (AI lead)
-    └── PriorityScore.kt   urgency score, bands and ranking
+app/src/main/
+├── assets/yamnet.tflite       sound model
+└── java/com/flarehop/
+    ├── MainActivity.kt         asks for permissions and starts the beacon
+    ├── flare/                  radio and mesh (Project lead)
+    │   ├── FlareConstants.kt   packet values, timings and thresholds
+    │   ├── SosRecord.kt        SosRecord, SosDetails, Fix, SoundType
+    │   ├── FlareEngine.kt      the engine interface the screens use
+    │   ├── PacketCodec.kt      24-byte packet encode and decode
+    │   ├── RealFlareEngine.kt  the engine: records, receipts, phones in range, log
+    │   ├── Flare.kt            the engine and battery watcher the app shares
+    │   ├── AdvertPlanner.kt    decides when to start, update, pause or resume the advert
+    │   ├── BleAdvertiser.kt    broadcasts the engine's packets every 300 ms
+    │   ├── BleScanner.kt       hears Flarehop packets and hands them to the engine
+    │   └── FlareService.kt     foreground service that runs the radio and battery watcher
+    ├── ui/                     screens (App lead)
+    │   ├── MainScreen.kt       the four tabs
+    │   ├── VictimScreen.kt     Survivor tab
+    │   ├── SosListScreen.kt    Rescuer tab
+    │   ├── FindScreen.kt       Find mode
+    │   ├── EventLogScreen.kt   Log tab
+    │   ├── DemoSettingsScreen.kt
+    │   ├── RadioCheck.kt       permission, Bluetooth and Location banner
+    │   ├── LocationReader.kt   GPS or network location
+    │   ├── FlareViewModel.kt, RoleStore.kt, RadarView.kt, GeoDistance.kt
+    │   └── theme/
+    └── sense/                  sound, battery, priority score (AI lead)
+        ├── PriorityScore.kt    urgency score, bands and ranking
+        ├── BatteryWatcher.kt   battery level every minute, with a demo override
+        ├── YamnetListener.kt   microphone to the YAMNet model
+        ├── SoundGate.kt        which sounds count: class, confidence and loudness
+        └── SignsOfLife.kt      when to listen, and the fake knock
 app/src/test/java/com/flarehop/
-├── flare/
-│   ├── AdvertPlannerTest.kt
-│   ├── PacketCodecTest.kt
-│   └── RealFlareEngineTest.kt
-├── handoff/
-│   ├── FakeRadio.kt       in-memory radio that connects several engines
-│   ├── RescueLoopTest.kt
-│   └── HandoffRulesTest.kt
-└── sense/
-    └── PriorityScoreTest.kt
+├── flare/      AdvertPlannerTest, MeshGroupTest, PacketCodecTest, RealFlareEngineTest
+├── handoff/    FakeRadio (several engines on an in-memory radio), RescueLoopTest, HandoffRulesTest
+└── sense/      BatteryWatcherTest, PriorityScoreTest, SignsOfLifeTest, SoundGateTest
 ```
 
 Each person works only in their own package. `SosRecord`, `FlareEngine` and `FlareConstants` are shared contracts: only the Project lead changes them, after telling the team.
@@ -82,7 +105,7 @@ Each person works only in their own package. `SosRecord`, `FlareEngine` and `Fla
 - Android Studio, latest stable
 - Android SDK 37 (compile and target), minimum SDK 31 (Android 12)
 - Gradle 9.6.0 through the wrapper. Gradle downloads the JDK 25 it runs on by itself; the app compiles to Java 11.
-- Two or more physical Android phones with Bluetooth LE for the radio. Emulators cannot advertise or scan, so screens are built against a fake engine first.
+- Physical Android phones with 64-bit ARM processors (every recent phone). The app ships only the `arm64-v8a` build, which keeps it at about 66 MB. Emulators cannot advertise or scan over Bluetooth.
 
 ## Pinned versions
 
@@ -96,6 +119,7 @@ Each person works only in their own package. `SosRecord`, `FlareEngine` and `Fla
 | AndroidX lifecycle (runtime, viewmodel-compose) | 2.11.0 |
 | kotlinx-coroutines (android, test) | 1.11.0 |
 | MediaPipe tasks-audio | 1.2.2 |
+| ktlint | 1.8.0 (Gradle plugin 14.2.0) |
 | JUnit | 4.13.2 |
 
 All versions live in `gradle/libs.versions.toml`.
@@ -107,8 +131,10 @@ All versions live in `gradle/libs.versions.toml`.
    git clone https://github.com/Aayushkumar-gupta/FlareHop.git
    ```
 2. Open the folder in Android Studio and let Gradle sync.
-3. Create a branch for your work before changing anything:
+3. Before every change, update `main` and branch from it:
    ```
+   git checkout main
+   git pull origin main
    git checkout -b <your-role>/<feature>
    ```
 
@@ -120,29 +146,33 @@ All versions live in `gradle/libs.versions.toml`.
 
 ## Permissions
 
-When you pick a role the app asks for:
+The app asks for these when it opens:
 
 | Permission | Why |
 |---|---|
 | Nearby devices (Bluetooth advertise and scan) | To broadcast the SOS and hear other phones. Without it the beacon cannot start. |
-| Location, precise | Android only delivers Bluetooth scan results to apps with location access, because Bluetooth beacons can reveal where you are. Without it the phone broadcasts but hears nothing. |
+| Location, **precise** | Android only delivers Bluetooth scan results to apps with precise location, because Bluetooth beacons can reveal where you are. With Approximate or none, the phone broadcasts but hears nothing. |
+| Microphone | To listen for signs of life. Without it the SOS still goes out, without sounds. |
 | Notifications (Android 13 and newer) | To show the "Flarehop is on" notification of the foreground service. |
 
-The beacon runs as a foreground service, so it keeps broadcasting and listening with the screen off. The microphone permission is added with sound detection.
+The phone's **Location setting must be on** as well: with it off, Android delivers no Bluetooth scan results, and the app shows a banner saying so.
 
 ## Trying it on phones
 
 You need two phones with Android 12 or newer, Bluetooth on and Location on.
 
 1. Install it on each phone: `./gradlew installDebug` with the phones connected over USB, or **Run** in Android Studio.
-2. Phone A: open Flarehop, allow every permission (Location: **Precise**), open the **Survivor** tab and tap **Send SOS**.
-3. Phone C: open Flarehop, allow every permission, open the **Rescuer** tab and tap **Set yourself as rescuer**.
-4. Within a few seconds phone C lists the SOS ("SOS heard: 1") with its signal strength, and phone A shows `acked true`.
-5. Tap **Cancel SOS** on phone A. Phone C shows the SOS as `cancelled true`.
+2. Phone A: open Flarehop, allow every permission (Location: **Precise**), open **Survivor**, choose the people and conditions and tap **Send SOS**.
+3. Phone C: open Flarehop, allow every permission, open **Rescuer** and tap **Set yourself as rescuer**.
+4. Within a few seconds phone C lists the SOS with its urgency, battery and signal, and phone A shows "A rescuer received your SOS".
+5. On phone C, tap **Find** on the SOS and walk toward phone A: the beeps speed up.
+6. Tap **Cancel SOS** on phone A. Phone C marks the SOS as cancelled.
+
+With a third phone left on **Survivor**, it joins by itself when phone A sends the SOS, and the radars on both survivor phones show each other.
 
 To watch the radio in Logcat: `adb logcat -s FlareAdvertiser FlareScanner`.
 
-To check the raw packet without a second Flarehop phone, scan with nRF Connect and look for manufacturer data `0xFFFF` starting with `21` (version 2, type SOS).
+To check the raw packets without a second Flarehop phone, scan with nRF Connect and look for manufacturer data `0xFFFF`: an SOS starts with `21`, a receipt with `22`, a STANDBY with `23`.
 
 ## Development tools
 
@@ -174,11 +204,15 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | Test file | Checks |
 |---|---|
 | `AdvertPlannerTest` | When the advertiser starts, updates, skips an unchanged packet, pauses and resumes |
-| `PacketCodecTest` | Round trips for all four packet types, exact byte layout, no-fix value, caps at 254, unknown values as 255, and the drop rules |
+| `PacketCodecTest` | Round trips for all four packet types, exact byte layout, no-fix value, caps at 254, unknown values as 255, and the drop rules, including zero IDs |
+| `MeshGroupTest` | Joining when an SOS is heard, STANDBY every 5 seconds, never from a rescuer, the −70 dBm range, carried counts, dropping silent phones after 15 seconds, and three phones finding each other on a fake radio |
 | `RealFlareEngineTest` | Sending an SOS, records for heard SOS, signal readings, dropped packets, receipts and the 15-second receipt window, acknowledgements, cancel, packet rotation and reset. Uses a fake clock, so no waiting |
 | `RescueLoopTest` | Survivor and rescuer engines on a fake radio: the rescuer hears the SOS with its signal strength, the victim gets the receipt, out-of-range phones hear nothing, cancel reaches the rescuer |
-| `HandoffRulesTest` | Placeholder, skipped (`@Ignore`): being rewritten for the mesh rules in Contract 3 |
+| `HandoffRulesTest` | Placeholder, skipped (`@Ignore`): being rewritten for the handoff rules in Contract 3 |
 | `PriorityScoreTest` | The four score checks from Contract 5, the 10-minute sound window, and ties going to the SOS heard first |
+| `BatteryWatcherTest` | Battery pushed at start and every minute, the demo override, unreadable levels, stop |
+| `SignsOfLifeTest` | The listening schedule, stopping below 15% battery, continuous listening, the fake knock |
+| `SoundGateTest` | Which YAMNet classes count, the 0.5 confidence floor, and the loudness floor |
 
 To build the app:
 ```
