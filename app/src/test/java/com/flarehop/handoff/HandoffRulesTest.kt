@@ -9,7 +9,6 @@ import kotlin.random.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 class HandoffRulesTest {
@@ -213,7 +212,6 @@ class HandoffRulesTest {
     }
 
     @Test
-    @Ignore("Waits for rule 8, two carriers for one SOS (step 3.3)")
     fun rule8OfTwoCarriersTheOneWithLessBatteryStops() {
         val a = phone("A", seed = 1, battery = 50)
         val b = phone("B", seed = 2, battery = 80)

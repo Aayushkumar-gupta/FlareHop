@@ -21,7 +21,7 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 | Phones find each other | Phones near an SOS join by themselves and report their battery; every phone lists the phones in range | Done |
 | Handoff | Below 10% battery, hand every SOS a phone broadcasts to the phone in range with the most battery | Done |
 | Takeover | A phone holding a copy takes an SOS over after 15 seconds of silence, 5 seconds later for each phone in range with more battery | Done |
-| Conflicts | Two phones broadcasting the same SOS: the one with less battery stops, and the victim's own phone always keeps it | Next |
+| Conflicts | Two phones broadcasting the same SOS: the one with less battery stops, and the victim's own phone always keeps it | Done |
 | Screens | Survivor, Rescuer, Find mode, Log, Demo settings | Done |
 | Priority score | Ranks every SOS by urgency | Done |
 | Signs of life | On-device sound detection with YAMNet while this phone sends its own SOS, also with the screen off | Done |
@@ -59,6 +59,8 @@ A phone counts another phone as in range when it heard it at −70 dBm or strong
 
 If an SOS whose carrier was in range goes silent for 15 seconds, a phone holding a copy takes it over and broadcasts it with the victim's details and sound and its own battery. Each phone in range with more battery adds 5 seconds to the wait, so the strongest phone acts first and the others hear it and stay quiet. Rescuers and phones below 10% battery never take over.
 
+When phones that could not hear each other both took an SOS over and come back into range, the one with less battery stops (on a tie, the higher phone ID). If the victim's own phone is broadcasting again, every other carrier stops. A phone that stops keeps its copy, so it can take over again if the other carrier goes silent.
+
 The flare engine is the only part of the app that talks to the radio. Screens call its actions (`sendSos`, `cancelSos`, `setRole`, `setBattery`, `setSound`, `reset`) and watch its streams (`mySos`, `knownSos`, `carried`, `group`, `directSignal`, `log`).
 
 ## Code layout
@@ -74,7 +76,7 @@ app/src/main/
     │   ├── SosRecord.kt        SosRecord, SosDetails, Fix, SoundType
     │   ├── FlareEngine.kt      the engine interface the screens use
     │   ├── PacketCodec.kt      24-byte packet encode and decode
-    │   ├── RealFlareEngine.kt  the engine: records, receipts, phones in range, handoff, takeover, log
+    │   ├── RealFlareEngine.kt  the engine: records, receipts, phones in range, handoff, takeover, conflicts, log
     │   ├── Flare.kt            the engine, battery watcher and signs of life the app shares
     │   ├── AdvertPlanner.kt    decides when to start, update, pause or resume the advert
     │   ├── BleAdvertiser.kt    broadcasts the engine's packets every 300 ms
@@ -98,7 +100,7 @@ app/src/main/
         ├── SoundGate.kt        which sounds count: class, confidence and loudness
         └── SignsOfLife.kt      when to listen, and the fake knock
 app/src/test/java/com/flarehop/
-├── flare/      AdvertPlannerTest, MeshGroupTest, MeshHandoffTest, MeshTakeoverTest, PacketCodecTest, RealFlareEngineTest
+├── flare/      AdvertPlannerTest, MeshConflictTest, MeshGroupTest, MeshHandoffTest, MeshTakeoverTest, PacketCodecTest, RealFlareEngineTest
 ├── handoff/    FakeRadio (several engines on an in-memory radio), RescueLoopTest, HandoffRulesTest
 └── sense/      BatteryWatcherTest, PriorityScoreTest, SignsOfLifeTest, SoundGateTest
 ```
@@ -231,9 +233,10 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | `MeshGroupTest` | Joining when an SOS is heard, STANDBY every 5 seconds, never from a rescuer, the −70 dBm range, carried counts, dropping silent phones after 15 seconds, and three phones finding each other on a fake radio |
 | `MeshHandoffTest` | The handoff below 10% battery: the phone with the most battery wins, ties go to the lowest ID, unknown battery, weak signal and rescuers are never chosen, a carrier hands on everything it carries, the next phone is named after 30 seconds without an answer, the rescuer follows the new carrier with the victim's details, and cancel releases the carried copy |
 | `MeshTakeoverTest` | Takeover after silence: the copy keeps the victim's details and sound, a weaker phone waits 5 seconds more per stronger phone, a dead carrier is taken over too, the rescuer sees the new carrier, and rescuers, phones below 10%, far-away carriers and cancelled SOS are never taken over |
+| `MeshConflictTest` | Two carriers for one SOS: less battery stops and keeps its copy, a tie stops the higher ID, the victim coming back keeps its own SOS, the phone that stopped takes over again when the other dies, and the rescuer ends up hearing one carrier |
 | `RealFlareEngineTest` | Sending an SOS, records for heard SOS, signal readings, dropped packets, receipts and the 15-second receipt window, acknowledgements, cancel, packet rotation and reset. Uses a fake clock, so no waiting |
 | `RescueLoopTest` | Survivor and rescuer engines on a fake radio: the rescuer hears the SOS with its signal strength, the victim gets the receipt, out-of-range phones hear nothing, cancel reaches the rescuer |
-| `HandoffRulesTest` | Contract 3's handoff rules on a fake radio, one test per rule: the strongest phone in range is named, ties, range, rescuers and unknown battery, the next phone after 30 seconds, a carrier hands on everything, the copy keeps the victim's data and sound with the carrier's battery, the SOS reaches phones the victim cannot reach, cancel, and the last phone standing carrying every SOS. takeover after silence, the weaker phone standing down. The two-carrier rule is written and skipped (`@Ignore`) until it is built |
+| `HandoffRulesTest` | Contract 3's handoff rules on a fake radio, one test per rule: the strongest phone in range is named, ties, range, rescuers and unknown battery, the next phone after 30 seconds, a carrier hands on everything, the copy keeps the victim's data and sound with the carrier's battery, the SOS reaches phones the victim cannot reach, cancel, and the last phone standing carrying every SOS. takeover after silence, the weaker phone standing down, and the carrier with less battery stopping when two carry one SOS |
 | `PriorityScoreTest` | The four score checks from Contract 5, the 10-minute sound window, and ties going to the SOS heard first |
 | `BatteryWatcherTest` | Battery pushed at start and every minute, the demo override, unreadable levels, stop |
 | `SignsOfLifeTest` | The listening schedule, stopping below 15% battery, continuous listening, the fake knock |

@@ -244,6 +244,7 @@ class RealFlareEngine(
         publishRecords()
         if (existing == null) emit(LogType.HEARD, packet.messageId, packet.carrierId, atMs)
         hearNeighbour(packet.carrierId, packet.battery, rssi, atMs, packet.messageId)
+        resolveConflict(packet, atMs)
         signals.tryEmit(DirectSignal(packet.messageId, packet.carrierId, rssi, atMs))
         if (role == Role.RESCUER && packet.messageId !in receipts) {
             receipts[packet.messageId] = ReceiptPacket(
@@ -351,6 +352,23 @@ class RealFlareEngine(
             mySosState.value = MySos(mine.record.copy(carrierId = carrierId), SosStatus.HANDED_OFF)
         }
         if (carriedRecords.remove(messageId) != null) publishCarried()
+    }
+
+    // Contract 3 rule 8: another phone broadcasts an SOS this phone carries. The victim's own phone
+    // always keeps it; otherwise less battery stops, and on a tie the higher phone ID. Both sides
+    // apply the same test, so exactly one stops. The copy stays in records for a later takeover.
+    private fun resolveConflict(packet: SosPacket, atMs: Long) {
+        if (packet.messageId !in carriedRecords) return
+        val theirs = packet.battery ?: -1
+        val mine = battery ?: -1
+        val stop = packet.carrierId == packet.originId ||
+            theirs > mine ||
+            (theirs == mine && phoneId > packet.carrierId)
+        if (!stop) return
+        carriedRecords.remove(packet.messageId)
+        handoffs.remove(packet.messageId)
+        publishCarried()
+        emit(LogType.BACKED_OFF, packet.messageId, packet.carrierId, atMs)
     }
 
     private fun planHandoffs(now: Long) {
