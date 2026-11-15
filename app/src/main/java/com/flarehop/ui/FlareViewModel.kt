@@ -8,10 +8,10 @@ import com.flarehop.flare.FlareEngine
 import com.flarehop.flare.LogType
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosDetails
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
