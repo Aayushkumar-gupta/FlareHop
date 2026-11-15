@@ -1,6 +1,8 @@
 package com.flarehop.flare
 
 import com.flarehop.flare.FlareConstants.CANCEL_ADVERT_MS
+import com.flarehop.flare.FlareConstants.HANDOFF_BATTERY_PERCENT
+import com.flarehop.flare.FlareConstants.HANDOFF_RETRY_MS
 import com.flarehop.flare.FlareConstants.IN_RANGE_MS
 import com.flarehop.flare.FlareConstants.JOIN_RSSI_DBM
 import com.flarehop.flare.FlareConstants.RECEIPT_KEEP_MS
@@ -55,6 +57,10 @@ class RealFlareEngine(
     private var rotation = 0
     private val neighbours = LinkedHashMap<Int, Neighbour>()
     private var lastStandbyMs: Long? = null
+    private val carriedRecords = LinkedHashMap<Long, SosRecord>()
+    private val handoffs = HashMap<Long, Handoff>()
+
+    private class Handoff(val successorId: Int, val namedAt: Long, val tried: Set<Int>)
 
     private class Neighbour(var battery: Int?, var rssi: Int, var lastHeardAt: Long) {
         val carrying = HashMap<Long, Long>()
@@ -67,8 +73,18 @@ class RealFlareEngine(
 
                 is Decoded.Ok -> when (val packet = decoded.packet) {
                     is SosPacket -> onSos(packet, rssi, atMs)
+
                     is ReceiptPacket -> onReceipt(packet, atMs)
-                    is HandoffPacket -> if (packet.successorId == 0) onCancel(packet, atMs)
+
+                    is HandoffPacket ->
+                        if (packet.successorId ==
+                            0
+                        ) {
+                            onCancel(packet, atMs)
+                        } else {
+                            onHandoff(packet, atMs)
+                        }
+
                     is StandbyPacket -> onStandby(packet, rssi, atMs)
                 }
             }
@@ -118,6 +134,7 @@ class RealFlareEngine(
                 battery = battery,
             )
             cancelUntilMs = clock() + CANCEL_ADVERT_MS
+            handoffs.remove(current.record.messageId)
             mySosState.value = null
         }
     }
@@ -146,10 +163,15 @@ class RealFlareEngine(
             val now = clock()
             if (cancel != null && now >= cancelUntilMs) cancel = null
             publishGroup(now)
+            planHandoffs(now)
             val packets = buildList {
                 mySosState.value
                     ?.takeIf { it.status == SosStatus.SENDING }
                     ?.let { add(sosPacket(it.record, now)) }
+                carriedRecords.values.forEach { add(carriedPacket(it, now)) }
+                handoffs.forEach { (messageId, handoff) ->
+                    handoffPacket(messageId, handoff.successorId)?.let { add(it) }
+                }
                 cancel?.let { add(it) }
                 receipts.forEach { (messageId, receipt) ->
                     val heard = records[messageId]?.lastHeardAt ?: return@forEach
@@ -174,6 +196,8 @@ class RealFlareEngine(
             receipts.clear()
             neighbours.clear()
             lastStandbyMs = null
+            carriedRecords.clear()
+            handoffs.clear()
             cancel = null
             cancelUntilMs = 0L
             rotation = 0
@@ -185,6 +209,11 @@ class RealFlareEngine(
     }
 
     private fun onSos(packet: SosPacket, rssi: Int, atMs: Long) {
+        confirmHandoff(packet.messageId, packet.carrierId)
+        if (packet.messageId == mySosState.value?.record?.messageId) {
+            hearNeighbour(packet.carrierId, packet.battery, rssi, atMs, packet.messageId)
+            return
+        }
         val existing = records[packet.messageId]
         records[packet.messageId] = SosRecord(
             messageId = packet.messageId,
@@ -225,7 +254,8 @@ class RealFlareEngine(
 
     private fun standbyDue(now: Long, nothingElse: Boolean): StandbyPacket? {
         val mine = mySosState.value?.record
-        val inMesh = role == Role.SURVIVOR && (mine != null || records.values.any { !it.cancelled })
+        val inMesh = role == Role.SURVIVOR &&
+            (mine != null || carriedRecords.isNotEmpty() || records.values.any { !it.cancelled })
         if (!inMesh) {
             lastStandbyMs = null
             return null
@@ -301,8 +331,77 @@ class RealFlareEngine(
         if (matched) emit(LogType.RECEIPT_MATCHED, packet.ackedMessageId, packet.rescuerId, atMs)
     }
 
+    private fun onHandoff(packet: HandoffPacket, atMs: Long) {
+        if (packet.successorId != phoneId || role != Role.SURVIVOR) return
+        if (packet.messageId in carriedRecords) return
+        val copy = records[packet.messageId] ?: return
+        carriedRecords[packet.messageId] = copy.copy(carrierId = phoneId)
+        publishCarried()
+        emit(LogType.TOOK_OVER, packet.messageId, phoneId, atMs)
+    }
+
+    private fun confirmHandoff(messageId: Long, carrierId: Int) {
+        if (handoffs[messageId]?.successorId != carrierId) return
+        handoffs.remove(messageId)
+        val mine = mySosState.value
+        if (mine != null && mine.record.messageId == messageId) {
+            mySosState.value = MySos(mine.record.copy(carrierId = carrierId), SosStatus.HANDED_OFF)
+        }
+        if (carriedRecords.remove(messageId) != null) publishCarried()
+    }
+
+    private fun planHandoffs(now: Long) {
+        val level = battery
+        if (level == null || level >= HANDOFF_BATTERY_PERCENT) {
+            handoffs.clear()
+            return
+        }
+        val broadcasting = buildList {
+            mySosState.value
+                ?.takeIf { it.status == SosStatus.SENDING }
+                ?.let { add(it.record.messageId) }
+            addAll(carriedRecords.keys)
+        }
+        handoffs.keys.retainAll(broadcasting.toSet())
+        broadcasting.forEach { messageId ->
+            val pending = handoffs[messageId]
+            if (pending != null && now - pending.namedAt < HANDOFF_RETRY_MS) return@forEach
+            val tried = pending?.let { it.tried + it.successorId } ?: emptySet()
+            val next = strongestInRange(level, exclude = tried)
+                ?: strongestInRange(level, exclude = emptySet())
+                ?: return@forEach
+            val stillTried = if (next.phoneId in tried) emptySet() else tried
+            handoffs[messageId] = Handoff(next.phoneId, now, stillTried)
+            emit(LogType.HANDOFF_SENT, messageId, next.phoneId, now)
+        }
+    }
+
+    private fun strongestInRange(myLevel: Int, exclude: Set<Int>): GroupMember? = groupState.value
+        .filter { member ->
+            val level = member.battery
+            level != null && level > myLevel && member.phoneId !in exclude
+        }
+        .maxWithOrNull(
+            compareBy<GroupMember> { it.battery }.thenByDescending { it.phoneId },
+        )
+
+    private fun handoffPacket(messageId: Long, successorId: Int): HandoffPacket? {
+        val record = carriedRecords[messageId]
+            ?: mySosState.value?.record?.takeIf { it.messageId == messageId }
+            ?: return null
+        return HandoffPacket(
+            messageId = messageId,
+            originId = record.originId,
+            carrierId = phoneId,
+            successorId = successorId,
+            battery = battery,
+        )
+    }
+
     private fun onCancel(packet: HandoffPacket, atMs: Long) {
         receipts.remove(packet.messageId)
+        handoffs.remove(packet.messageId)
+        if (carriedRecords.remove(packet.messageId) != null) publishCarried()
         val record = records[packet.messageId] ?: return
         if (record.cancelled) return
         records[packet.messageId] = record.copy(cancelled = true)
@@ -330,6 +429,34 @@ class RealFlareEngine(
         ),
         battery = battery,
     )
+
+    private fun carriedPacket(record: SosRecord, now: Long): SosPacket {
+        val minutes = minutesBetween(record.lastHeardAt, now)
+        return SosPacket(
+            messageId = record.messageId,
+            originId = record.originId,
+            carrierId = phoneId,
+            sound = record.sound,
+            soundAgeMin = record.soundAgeMin?.plus(minutes),
+            latitude = record.latitude,
+            longitude = record.longitude,
+            accuracyM = record.accuracyM,
+            fixAgeMin = record.fixAgeMin?.plus(minutes),
+            details = SosDetails(
+                people = record.people,
+                injured = record.injured,
+                trapped = record.trapped,
+                water = record.water,
+                medical = record.medical,
+                fire = record.fire,
+            ),
+            battery = battery,
+        )
+    }
+
+    private fun publishCarried() {
+        carriedState.value = carriedRecords.values.toList()
+    }
 
     private fun updateMyRecord(change: (SosRecord) -> SosRecord) {
         val mine = mySosState.value ?: return
