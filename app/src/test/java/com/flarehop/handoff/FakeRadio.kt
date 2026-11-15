@@ -27,6 +27,10 @@ class FakeRadio(startMs: Long = 1_000_000L) {
         outOfRange += setOf(a, b)
     }
 
+    fun connect(a: String, b: String) {
+        outOfRange -= setOf(a, b)
+    }
+
     fun switchOff(name: String) {
         off += name
     }

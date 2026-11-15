@@ -61,6 +61,7 @@ The flare engine is the only part of the app that talks to the radio. Screens ca
 ## Code layout
 
 ```
+scripts/                       install-all.sh, mirror.sh, record-backup.sh
 app/src/main/
 ├── assets/yamnet.tflite       sound model
 └── java/com/flarehop/
@@ -175,6 +176,24 @@ To watch the radio in Logcat: `adb logcat -s FlareAdvertiser FlareScanner`.
 
 To check the raw packets without a second Flarehop phone, scan with nRF Connect and look for manufacturer data `0xFFFF`: an SOS starts with `21`, a receipt with `22`, a STANDBY with `23`.
 
+## Demo scripts
+
+Three scripts in `scripts/` run the phones for testing and the demo. They need `adb` and `scrcpy` on your PATH (macOS):
+
+```
+echo 'export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"' >> ~/.zshrc
+source ~/.zshrc
+brew install scrcpy
+```
+
+| Script | What it does |
+|---|---|
+| `scripts/install-all.sh` | Builds the app once, installs it on every phone plugged in over USB at the same time, and opens it |
+| `scripts/mirror.sh [serial]` | Opens a scrcpy window for each phone (or only the one you name), keeping sound on the phone so Find mode's beeps stay audible |
+| `scripts/record-backup.sh <serial>` | Records that phone's screen for the backup video and saves it twice, in `~/Movies/flarehop` and on the Desktop |
+
+Find a phone's serial with `adb devices`. The scripts are bash, so on Windows they need Git Bash or WSL.
+
 ## Development tools
 
 | Tool | What it does | Command |
@@ -210,7 +229,7 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | `MeshHandoffTest` | The handoff below 10% battery: the phone with the most battery wins, ties go to the lowest ID, unknown battery, weak signal and rescuers are never chosen, a carrier hands on everything it carries, the next phone is named after 30 seconds without an answer, the rescuer follows the new carrier with the victim's details, and cancel releases the carried copy |
 | `RealFlareEngineTest` | Sending an SOS, records for heard SOS, signal readings, dropped packets, receipts and the 15-second receipt window, acknowledgements, cancel, packet rotation and reset. Uses a fake clock, so no waiting |
 | `RescueLoopTest` | Survivor and rescuer engines on a fake radio: the rescuer hears the SOS with its signal strength, the victim gets the receipt, out-of-range phones hear nothing, cancel reaches the rescuer |
-| `HandoffRulesTest` | Placeholder, skipped (`@Ignore`): being rewritten for the handoff rules in Contract 3 |
+| `HandoffRulesTest` | Contract 3's handoff rules on a fake radio, one test per rule: the strongest phone in range is named, ties, range, rescuers and unknown battery, the next phone after 30 seconds, a carrier hands on everything, the copy keeps the victim's data and sound with the carrier's battery, the SOS reaches phones the victim cannot reach, cancel, and the last phone standing carrying every SOS. Takeover after silence and the two-carrier rule are written and skipped (`@Ignore`) until they are built |
 | `PriorityScoreTest` | The four score checks from Contract 5, the 10-minute sound window, and ties going to the SOS heard first |
 | `BatteryWatcherTest` | Battery pushed at start and every minute, the demo override, unreadable levels, stop |
 | `SignsOfLifeTest` | The listening schedule, stopping below 15% battery, continuous listening, the fake knock |
