@@ -19,7 +19,8 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 | Radio | Bluetooth LE broadcast and scan in a foreground service | Done |
 | Battery watcher | Reports the phone's battery to the engine every minute | Done |
 | Phones find each other | Phones near an SOS join by themselves and report their battery; every phone lists the phones in range | Done |
-| Handoff | Hand every SOS to the phone with the most battery, take over after silence, two-carrier conflict | Next |
+| Handoff | Below 10% battery, hand every SOS a phone broadcasts to the phone in range with the most battery | Done |
+| Takeover and conflicts | Take over an SOS after 15 seconds of silence; two phones broadcasting the same SOS | Next |
 | Screens | Survivor, Rescuer, Find mode, Log, Demo settings | Done |
 | Priority score | Ranks every SOS by urgency | Done |
 | Signs of life | On-device sound detection with YAMNet while this phone sends its own SOS, also with the screen off | Done |
@@ -69,7 +70,7 @@ app/src/main/
     │   ├── SosRecord.kt        SosRecord, SosDetails, Fix, SoundType
     │   ├── FlareEngine.kt      the engine interface the screens use
     │   ├── PacketCodec.kt      24-byte packet encode and decode
-    │   ├── RealFlareEngine.kt  the engine: records, receipts, phones in range, log
+    │   ├── RealFlareEngine.kt  the engine: records, receipts, phones in range, handoff, log
     │   ├── Flare.kt            the engine, battery watcher and signs of life the app shares
     │   ├── AdvertPlanner.kt    decides when to start, update, pause or resume the advert
     │   ├── BleAdvertiser.kt    broadcasts the engine's packets every 300 ms
@@ -93,7 +94,7 @@ app/src/main/
         ├── SoundGate.kt        which sounds count: class, confidence and loudness
         └── SignsOfLife.kt      when to listen, and the fake knock
 app/src/test/java/com/flarehop/
-├── flare/      AdvertPlannerTest, MeshGroupTest, PacketCodecTest, RealFlareEngineTest
+├── flare/      AdvertPlannerTest, MeshGroupTest, MeshHandoffTest, PacketCodecTest, RealFlareEngineTest
 ├── handoff/    FakeRadio (several engines on an in-memory radio), RescueLoopTest, HandoffRulesTest
 └── sense/      BatteryWatcherTest, PriorityScoreTest, SignsOfLifeTest, SoundGateTest
 ```
@@ -206,6 +207,7 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | `AdvertPlannerTest` | When the advertiser starts, updates, skips an unchanged packet, pauses and resumes |
 | `PacketCodecTest` | Round trips for all four packet types, exact byte layout, no-fix value, caps at 254, unknown values as 255, and the drop rules, including zero IDs |
 | `MeshGroupTest` | Joining when an SOS is heard, STANDBY every 5 seconds, never from a rescuer, the −70 dBm range, carried counts, dropping silent phones after 15 seconds, and three phones finding each other on a fake radio |
+| `MeshHandoffTest` | The handoff below 10% battery: the phone with the most battery wins, ties go to the lowest ID, unknown battery, weak signal and rescuers are never chosen, a carrier hands on everything it carries, the next phone is named after 30 seconds without an answer, the rescuer follows the new carrier with the victim's details, and cancel releases the carried copy |
 | `RealFlareEngineTest` | Sending an SOS, records for heard SOS, signal readings, dropped packets, receipts and the 15-second receipt window, acknowledgements, cancel, packet rotation and reset. Uses a fake clock, so no waiting |
 | `RescueLoopTest` | Survivor and rescuer engines on a fake radio: the rescuer hears the SOS with its signal strength, the victim gets the receipt, out-of-range phones hear nothing, cancel reaches the rescuer |
 | `HandoffRulesTest` | Placeholder, skipped (`@Ignore`): being rewritten for the handoff rules in Contract 3 |
