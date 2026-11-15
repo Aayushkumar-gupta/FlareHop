@@ -26,7 +26,9 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 | Log and Demo tabs | Radio event log and demo overrides | Hidden for now, coming back |
 | Priority score | Ranks every SOS by urgency | Done |
 | Signs of life | On-device sound detection with YAMNet while this phone sends its own SOS, also with the screen off | Done |
-| Auto-join with the app closed | After a reboot or when Android has closed the app, it wakes when it hears an SOS and joins as a carrier | Built, to prove on phones |
+| Auto-join with the app closed | After a reboot or when Android has closed the app, it wakes when it hears an SOS and joins as a carrier | Done |
+
+Every part marked Done has been tried on real phones, except the handoff below 10% battery, which needs the Demo tab to fake a low battery.
 
 ## Using the app
 
@@ -45,6 +47,30 @@ Find mode follows the selected SOS's Bluetooth signal: a meter, a warmer or cold
 A red banner on the Victim and Nearby tabs explains anything that stops the radio: Nearby devices not allowed, Location set to Approximate, Bluetooth off or Location off, each with a button to the right Settings page.
 
 ## How it works
+
+Phones never pair or connect. Every phone broadcasts small packets and listens for everyone else's, so an SOS reaches every phone in range at once. This is how three phones keep one SOS alive:
+
+```mermaid
+sequenceDiagram
+    participant A as Phone A (victim)
+    participant B as Phone B (nearby phone)
+    participant C as Phone C (rescuer)
+    Note over A,C: Each arrow is a broadcast that every phone in range hears
+    A-)C: SOS (position, details, battery, last sound)
+    Note over B: B joins by itself, even with the app closed, and keeps a copy
+    B-)A: STANDBY (phone ID, battery)
+    C-)A: RECEIPT
+    Note over A: A shows "A rescuer received your SOS"
+    alt A drops below 10% battery
+        A-)B: HANDOFF naming B
+    else A goes silent for 15 seconds
+        Note over B: B takes the SOS over
+    end
+    B-)C: SOS with A's details, now carried by B
+    Note over C: C follows the new carrier, and Find leads to B
+    A-)B: SOS (A's Bluetooth is back)
+    Note over B: B stops, because the victim's own phone always keeps its SOS
+```
 
 Every message is exactly 24 bytes, sent as manufacturer data under company ID `0xFFFF` (reserved for testing) in a non-connectable Bluetooth LE advert. There are four packet types:
 
