@@ -2,7 +2,7 @@
 
 FlareHop is a rescue app for Android that works with no cell towers, no internet and no pairing. A trapped person taps SOS once, and their phone keeps calling for help over Bluetooth, even after its battery dies.
 
-- **The person who needs help** taps SOS. Their phone broadcasts a small Bluetooth LE packet with their GPS position, how many people are with them, whether anyone is injured or trapped, their battery level, and the last sign of life the phone heard (speech, shouting, knocking or crying).
+- **The person who needs help** taps SOS. Their phone broadcasts a small Bluetooth LE packet with their GPS position, their battery level, and the last sign of life the phone heard (speech, shouting, knocking or crying). The packet also has room for how many people are there and whether anyone is injured or trapped.
 - **Every Flarehop phone nearby** joins by itself, keeps a copy of every SOS it hears and reports its own battery. When a phone is about to die, the phone with the most charge takes over broadcasting its SOS, so the call for help outlives the phone that sent it.
 - **A rescuer** opens the same app, sees every SOS in range ranked by urgency, sends a receipt back ("A rescuer received your SOS"), and follows the signal to the phone with Find mode.
 
@@ -22,25 +22,27 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 | Handoff | Below 10% battery, hand every SOS a phone broadcasts to the phone in range with the most battery | Done |
 | Takeover | A phone holding a copy takes an SOS over after 15 seconds of silence, 5 seconds later for each phone in range with more battery | Done |
 | Conflicts | Two phones broadcasting the same SOS: the one with less battery stops, and the victim's own phone always keeps it | Done |
-| Screens | Survivor, Rescuer, Find mode, Log, Demo settings | Done |
+| Screens | Victim, Nearby, Rescuer and Find mode | Done |
+| Log and Demo tabs | Radio event log and demo overrides | Hidden for now, coming back |
 | Priority score | Ranks every SOS by urgency | Done |
 | Signs of life | On-device sound detection with YAMNet while this phone sends its own SOS, also with the screen off | Done |
-| Auto-join with the app closed | The app wakes when it hears an SOS | Planned |
+| Auto-join with the app closed | After a reboot or when Android has closed the app, it wakes when it hears an SOS and joins as a carrier | Built, to prove on phones |
 
 ## Using the app
 
-The app has four tabs:
+The app has three tabs:
 
 | Tab | What it shows |
 |---|---|
-| **Survivor** | People count and conditions (injured, trapped, medical, water rising, fire), **Send SOS** and **Cancel SOS**, a radar of the phones around you, and "A rescuer received your SOS" once a rescuer answers |
-| **Rescuer** | **Set yourself as rescuer**, then every SOS this phone hears, ranked by urgency, with distance, battery, signal and last sound. **Find** opens Find mode for one SOS. **Stop being a rescuer** switches back. |
-| **Log** | Every radio event on this phone: SOS heard, phone joined, receipt sent, cancelled |
-| **Demo** | Override battery, Fake a knock, Listen continuously, Keep screen on, Reset this phone |
+| **Victim** | One big **SOS** button, then **Cancel SOS**. After sending it shows "SOS sent", "A rescuer received your SOS" once a rescuer answers, or "SOS handed on" with the phone that now sends it, and the other survivors nearby. The SOS goes out without a people count or conditions (people 0 means "not given"). |
+| **Nearby** | A north-up radar of every SOS and phone around you, placed by GPS where both phones have a fix and by Bluetooth signal otherwise, with a status line: "Looking for an SOS close by", "1 SOS close by", or "Carrying the SOS of phone 1A2B" when this phone took one over |
+| **Rescuer** | **Set yourself as rescuer** (after a confirm), then every SOS this phone hears, ranked by urgency, with distance, battery, signal and last sound. **Find** opens Find mode for one SOS. **Stop being a rescuer** switches back. |
+
+The Log and Demo tabs (radio events, battery override, fake knock) are hidden for now and come back before the demo.
 
 Find mode follows the selected SOS's Bluetooth signal: a meter, a warmer or colder arrow, and beeps that speed up as you get closer. It averages the last 10 readings and shows "Signal lost" after 5 seconds without one.
 
-A red banner on the Survivor and Rescuer tabs explains anything that stops the radio: Nearby devices not allowed, Location set to Approximate, Bluetooth off or Location off, each with a button to the right Settings page.
+A red banner on the Victim and Nearby tabs explains anything that stops the radio: Nearby devices not allowed, Location set to Approximate, Bluetooth off or Location off, each with a button to the right Settings page.
 
 ## How it works
 
@@ -60,6 +62,8 @@ A phone counts another phone as in range when it heard it at −70 dBm or strong
 If an SOS whose carrier was in range goes silent for 15 seconds, a phone holding a copy takes it over and broadcasts it with the victim's details and sound and its own battery. Each phone in range with more battery adds 5 seconds to the wait, so the strongest phone acts first and the others hear it and stay quiet. Rescuers and phones below 10% battery never take over.
 
 When phones that could not hear each other both took an SOS over and come back into range, the one with less battery stops (on a tie, the higher phone ID). If the victim's own phone is broadcasting again, every other carrier stops. A phone that stops keeps its copy, so it can take over again if the other carrier goes silent.
+
+Once the app has been opened, Android keeps a low-power scan for Flarehop packets running for it, even after it closes the app, and again after a reboot. When that scan hears an SOS, the app starts its service by itself: it keeps the copy, sends STANDBY and can take the SOS over, as a rescuer if that phone was set as one. A phone woken this way uses only Bluetooth until its owner opens the app, because Android lets a service started in the background use location and the microphone only then. Tapping the notification opens the app, where the owner can send their own SOS. If Android refuses to start the service, the phone shows an "SOS nearby" notification instead, and one tap joins. After **Force stop** in Settings, Android delivers nothing to the app until it is opened again.
 
 The flare engine is the only part of the app that talks to the radio. Screens call its actions (`sendSos`, `cancelSos`, `setRole`, `setBattery`, `setSound`, `reset`) and watch its streams (`mySos`, `knownSos`, `carried`, `group`, `directSignal`, `log`).
 
@@ -81,14 +85,21 @@ app/src/main/
     │   ├── AdvertPlanner.kt    decides when to start, update, pause or resume the advert
     │   ├── BleAdvertiser.kt    broadcasts the engine's packets every 300 ms
     │   ├── BleScanner.kt       hears Flarehop packets and hands them to the engine
+    │   ├── WakeScan.kt         the scan Android keeps running while the app is closed
+    │   ├── WakeRule.kt         which packets wake the app (an SOS only)
+    │   ├── WakeReceiver.kt     starts the service when the closed app hears an SOS
+    │   ├── BootReceiver.kt     arms the wake scan again after a reboot or an update
+    │   ├── WakeNotice.kt       the "SOS nearby" notification when Android refuses the start
     │   └── FlareService.kt     foreground service: radio, battery watcher and sound listener
     ├── ui/                     screens (App lead)
-    │   ├── MainScreen.kt       the four tabs
-    │   ├── VictimScreen.kt     Survivor tab
+    │   ├── MainScreen.kt       the three tabs
+    │   ├── VictimScreen.kt     Victim tab
+    │   ├── NearbyScreen.kt     Nearby tab
     │   ├── SosListScreen.kt    Rescuer tab
     │   ├── FindScreen.kt       Find mode
-    │   ├── EventLogScreen.kt   Log tab
-    │   ├── DemoSettingsScreen.kt
+    │   ├── LocationEstimator.kt distance and direction from GPS and Bluetooth signal
+    │   ├── EventLogScreen.kt   Log tab (hidden for now)
+    │   ├── DemoSettingsScreen.kt Demo tab (hidden for now)
     │   ├── RadioCheck.kt       permission, Bluetooth and Location banner
     │   ├── LocationReader.kt   GPS or network location
     │   ├── FlareViewModel.kt, RoleStore.kt, RadarView.kt, GeoDistance.kt
@@ -100,9 +111,12 @@ app/src/main/
         ├── SoundGate.kt        which sounds count: class, confidence and loudness
         └── SignsOfLife.kt      when to listen, and the fake knock
 app/src/test/java/com/flarehop/
-├── flare/      AdvertPlannerTest, MeshConflictTest, MeshGroupTest, MeshHandoffTest, MeshTakeoverTest, PacketCodecTest, RealFlareEngineTest
+├── flare/      AdvertPlannerTest, MeshConflictTest, MeshGroupTest, MeshHandoffTest, MeshTakeoverTest, PacketCodecTest, RealFlareEngineTest, WakeRuleTest
 ├── handoff/    FakeRadio (several engines on an in-memory radio), RescueLoopTest, HandoffRulesTest
-└── sense/      BatteryWatcherTest, PriorityScoreTest, SignsOfLifeTest, SoundGateTest
+├── sense/      BatteryWatcherTest, PriorityScoreTest, SignsOfLifeTest, SoundGateTest
+└── ui/         FindTrackerTest, LocationEstimatorTest
+app/src/androidTest/java/com/flarehop/
+└── sense/      YamnetLoadTest (runs on a phone)
 ```
 
 Each person works only in their own package. `SosRecord`, `FlareEngine` and `FlareConstants` are shared contracts: only the Project lead changes them, after telling the team.
@@ -160,7 +174,9 @@ The app asks for these when it opens:
 | Nearby devices (Bluetooth advertise and scan) | To broadcast the SOS and hear other phones. Without it the beacon cannot start. |
 | Location, **precise** | Android only delivers Bluetooth scan results to apps with precise location, because Bluetooth beacons can reveal where you are. With Approximate or none, the phone broadcasts but hears nothing. |
 | Microphone | To listen for signs of life while this phone sends its own SOS, also with the screen off. Without it the SOS still goes out, without sounds. |
-| Notifications (Android 13 and newer) | To show the "Flarehop is on" notification of the foreground service. |
+| Notifications (Android 13 and newer) | To show the "Flarehop is on" notification of the foreground service, and "SOS nearby" when the closed app hears one. |
+| Location, **Allow all the time** | Asked once, after the first permissions. Android gives Bluetooth scan results to a closed app only with it, so without it the app cannot wake when it hears an SOS. Everything else still works. |
+| Battery, **Unrestricted** (no battery optimisation) | Asked once, right after. It lets the woken app start its service by itself; without it Android may show the "SOS nearby" notification instead. |
 
 The phone's **Location setting must be on** as well: with it off, Android delivers no Bluetooth scan results, and the app shows a banner saying so.
 
@@ -169,15 +185,24 @@ The phone's **Location setting must be on** as well: with it off, Android delive
 You need two phones with Android 12 or newer, Bluetooth on and Location on.
 
 1. Install it on each phone: `./gradlew installDebug` with the phones connected over USB, or **Run** in Android Studio.
-2. Phone A: open Flarehop, allow every permission (Location: **Precise**), open **Survivor**, choose the people and conditions and tap **Send SOS**.
+2. Phone A: open Flarehop, allow every permission (Location: **Precise**), open **Victim** and tap **SOS**. The microphone now listens for signs of life; no screen shows it yet, so check with `adb logcat -s YamnetListener`, which stays quiet unless the model fails to load.
 3. Phone C: open Flarehop, allow every permission, open **Rescuer** and tap **Set yourself as rescuer**.
 4. Within a few seconds phone C lists the SOS with its urgency, battery and signal, and phone A shows "A rescuer received your SOS".
 5. On phone C, tap **Find** on the SOS and walk toward phone A: the beeps speed up.
 6. Tap **Cancel SOS** on phone A. Phone C marks the SOS as cancelled.
 
-With a third phone left on **Survivor**, it joins by itself when phone A sends the SOS, and the radars on both survivor phones show each other.
+With a third phone B open on **Nearby**, it joins by itself when phone A sends the SOS and shows "1 SOS close by". Then:
 
-To watch the radio in Logcat: `adb logcat -s FlareAdvertiser FlareScanner`.
+7. Turn Bluetooth off on phone A. After about 15 seconds phone B shows "Carrying the SOS of phone ..." and phone C keeps the SOS, now sent by B.
+8. Turn Bluetooth back on on phone A. Within a few seconds phone B stops carrying it, because the victim's own phone always keeps its SOS.
+
+To try waking with the app closed (phone B must have allowed Location **Allow all the time** and Battery **Unrestricted**):
+
+1. Restart phone B and do not open Flarehop.
+2. On phone A, send an SOS.
+3. Within about a minute phone B shows the "Flarehop is on" notification without being touched, and phone C sees phone B in range. If phone B shows "SOS nearby" instead, Android refused the start: tap it to join.
+
+To watch the radio and the sound listener in Logcat: `adb logcat -s FlareAdvertiser FlareScanner FlareWake YamnetListener`.
 
 To check the raw packets without a second Flarehop phone, scan with nRF Connect and look for manufacturer data `0xFFFF`: an SOS starts with `21`, a receipt with `22`, a STANDBY with `23`.
 
@@ -206,7 +231,8 @@ Find a phone's serial with `adb devices`. The scripts are bash, so on Windows th
 | ktlint | Formats Kotlin and checks the code style. Settings are in `.editorconfig` (Android Studio style, 100-character lines, trailing commas). | `./gradlew ktlintFormat` fixes, `./gradlew ktlintCheck` checks |
 | Android lint | Finds Android bugs, such as Bluetooth calls without a permission check | `./gradlew lintDebug` |
 | Unit tests | JUnit tests that run on your computer | `./gradlew testDebugUnitTest` |
-| CI | GitHub Actions runs all of the above and builds the APK on every push to `main` and every pull request | `.github/workflows/ci.yml` |
+| On-phone tests | Tests that need a real phone, such as loading the sound model | `./gradlew connectedDebugAndroidTest` |
+| CI | GitHub Actions runs ktlint, the unit tests and Android lint, and builds the APK, on every push to `main` and every pull request. It does not run the on-phone tests. | `.github/workflows/ci.yml` |
 
 Before you push, run:
 ```
@@ -234,13 +260,22 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | `MeshHandoffTest` | The handoff below 10% battery: the phone with the most battery wins, ties go to the lowest ID, unknown battery, weak signal and rescuers are never chosen, a carrier hands on everything it carries, the next phone is named after 30 seconds without an answer, the rescuer follows the new carrier with the victim's details, and cancel releases the carried copy |
 | `MeshTakeoverTest` | Takeover after silence: the copy keeps the victim's details and sound, a weaker phone waits 5 seconds more per stronger phone, a dead carrier is taken over too, the rescuer sees the new carrier, and rescuers, phones below 10%, far-away carriers and cancelled SOS are never taken over |
 | `MeshConflictTest` | Two carriers for one SOS: less battery stops and keeps its copy, a tie stops the higher ID, the victim coming back keeps its own SOS, the phone that stopped takes over again when the other dies, and the rescuer ends up hearing one carrier |
+| `WakeRuleTest` | Only an SOS wakes the closed app, not receipts, STANDBY, cancel or broken packets; a woken service starts with Bluetooth only, and an open app adds location and the microphone when they are allowed |
 | `RealFlareEngineTest` | Sending an SOS, records for heard SOS, signal readings, dropped packets, receipts and the 15-second receipt window, acknowledgements, cancel, packet rotation and reset. Uses a fake clock, so no waiting |
 | `RescueLoopTest` | Survivor and rescuer engines on a fake radio: the rescuer hears the SOS with its signal strength, the victim gets the receipt, out-of-range phones hear nothing, cancel reaches the rescuer |
-| `HandoffRulesTest` | Contract 3's handoff rules on a fake radio, one test per rule: the strongest phone in range is named, ties, range, rescuers and unknown battery, the next phone after 30 seconds, a carrier hands on everything, the copy keeps the victim's data and sound with the carrier's battery, the SOS reaches phones the victim cannot reach, cancel, and the last phone standing carrying every SOS. takeover after silence, the weaker phone standing down, and the carrier with less battery stopping when two carry one SOS |
+| `HandoffRulesTest` | Contract 3's handoff rules on a fake radio, one test per rule: the strongest phone in range is named, ties, range, rescuers and unknown battery, the next phone after 30 seconds, a carrier hands on everything, the copy keeps the victim's data and sound with the carrier's battery, the SOS reaches phones the victim cannot reach, cancel, the last phone standing carrying every SOS, takeover after silence with the weaker phone standing down, and the carrier with less battery stopping when two carry one SOS |
 | `PriorityScoreTest` | The four score checks from Contract 5, the 10-minute sound window, and ties going to the SOS heard first |
 | `BatteryWatcherTest` | Battery pushed at start and every minute, the demo override, unreadable levels, stop |
 | `SignsOfLifeTest` | The listening schedule, stopping below 15% battery, continuous listening, the fake knock |
 | `SoundGateTest` | Which YAMNet classes count, the 0.5 confidence floor, and the loudness floor |
+| `FindTrackerTest` | Find mode's meter from −90 to −40 dBm, beeps from 1500 ms down to 150 ms, averaging the last 10 readings, restarting on a new carrier, and warmer or colder after a 3 dB change |
+| `LocationEstimatorTest` | Distance from Bluetooth signal, GPS error from both phones' accuracy, old or rough fixes ignored, combining GPS and Bluetooth, and when the direction is unknown |
+
+To run the on-phone test, plug in one phone with USB debugging on and run:
+```
+./gradlew connectedDebugAndroidTest
+```
+`YamnetLoadTest` loads the sound model on the phone and classifies one second of silence. It fails if the model cannot load, the problem that used to crash the app when an SOS was sent.
 
 To build the app:
 ```
