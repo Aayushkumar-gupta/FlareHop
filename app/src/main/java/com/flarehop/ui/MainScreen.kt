@@ -9,24 +9,15 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 
 @Composable
 fun MainScreen(flare: FlareViewModel) {
     val tab by flare.tab.collectAsState()
     val findTarget by flare.findTarget.collectAsState()
-    val keepScreenOn by flare.keepScreenOn.collectAsState()
-
-    val view = LocalView.current
-    DisposableEffect(keepScreenOn) {
-        view.keepScreenOn = keepScreenOn
-        onDispose { view.keepScreenOn = false }
-    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),

@@ -23,12 +23,11 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 | Takeover | A phone holding a copy takes an SOS over after 15 seconds of silence, 5 seconds later for each phone in range with more battery | Done |
 | Conflicts | Two phones broadcasting the same SOS: the one with less battery stops, and the victim's own phone always keeps it | Done |
 | Screens | Victim, Nearby, Rescuer and Find mode | Done |
-| Log and Demo tabs | Radio event log and demo overrides | Hidden for now, coming back |
 | Priority score | Ranks every SOS by urgency | Done |
 | Signs of life | On-device sound detection with YAMNet while this phone sends its own SOS, also with the screen off | Done |
 | Auto-join with the app closed | After a reboot or when Android has closed the app, it wakes when it hears an SOS and joins as a carrier | Done |
 
-Every part marked Done has been tried on real phones, except the handoff below 10% battery, which needs the Demo tab to fake a low battery.
+Every part marked Done has been tried on real phones, except the handoff below 10% battery, which the unit tests prove. On phones, the takeover shows the same thing: turn the victim's Bluetooth off and a nearby phone keeps the SOS going.
 
 ## Using the app
 
@@ -40,7 +39,7 @@ The app has three tabs:
 | **Nearby** | A north-up radar of every SOS and phone around you, placed by GPS where both phones have a fix and by Bluetooth signal otherwise, with a status line: "Looking for an SOS close by", "1 SOS close by", or "Carrying the SOS of phone 1A2B" when this phone took one over |
 | **Rescuer** | **Set yourself as rescuer** (after a confirm), then every SOS this phone hears, ranked by urgency, with distance, battery, signal and last sound. **Find** opens Find mode for one SOS. **Stop being a rescuer** switches back. |
 
-The Log and Demo tabs (radio events, battery override, fake knock) are hidden for now and come back before the demo.
+There is no Log or Demo tab: every rule shows in plain words on the three tabs, and in logcat for developers.
 
 Find mode follows the selected SOS's Bluetooth signal: a meter, a warmer or colder arrow, and beeps that speed up as you get closer. It averages the last 10 readings and shows "Signal lost" after 5 seconds without one.
 
@@ -124,8 +123,6 @@ app/src/main/
     │   ├── SosListScreen.kt    Rescuer tab
     │   ├── FindScreen.kt       Find mode
     │   ├── LocationEstimator.kt distance and direction from GPS and Bluetooth signal
-    │   ├── EventLogScreen.kt   Log tab (hidden for now)
-    │   ├── DemoSettingsScreen.kt Demo tab (hidden for now)
     │   ├── RadioCheck.kt       permission, Bluetooth and Location banner
     │   ├── LocationReader.kt   GPS or network location
     │   ├── FlareViewModel.kt, RoleStore.kt, RadarView.kt, GeoDistance.kt
