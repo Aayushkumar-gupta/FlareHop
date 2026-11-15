@@ -285,15 +285,16 @@ private fun SosCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 CardTop(record = record, band = band, rank = rank)
+                // The victim's own screen shows the same ID, so a card can be matched to a person.
                 Text(
-                    text = peopleText(record.people),
+                    text = "Phone ${phoneLabel(record.originId)}",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
                 HorizontalDivider()
                 InfoRow("Sound", soundText(record))
                 InfoRow("Location", locationText(record, here))
-                InfoRow("Heard", heardText(record, now))
+                InfoRow("Last signal", lastSignalText(record, now))
                 InfoRow("Battery", record.battery?.let { "$it%" } ?: "Unknown")
                 InfoRow("Signal", signalText(record.lastRssi))
                 // Shown only after a handoff, so the rescuer can see the SOS now comes from a
@@ -304,7 +305,7 @@ private fun SosCard(
                 ReceiptLine(record)
                 if (onFind != null) {
                     Button(onClick = onFind, modifier = Modifier.fillMaxWidth().height(56.dp)) {
-                        Text(text = "Find", style = MaterialTheme.typography.titleMedium)
+                        Text(text = "Track", style = MaterialTheme.typography.titleMedium)
                     }
                 }
             }
@@ -393,15 +394,9 @@ private fun bandColor(band: PriorityBand): Color = when (band) {
     PriorityBand.NORMAL -> MaterialTheme.colorScheme.secondary
 }
 
-fun peopleText(people: Int) = when (people) {
-    0 -> "People not given"
-    1 -> "1 person"
-    else -> "$people people"
-}
-
 fun soundText(record: SosRecord): String {
     val label = when (record.sound) {
-        SoundType.NONE -> return "None heard"
+        SoundType.NONE -> return "No sound detected yet"
         SoundType.SPEECH -> "Speech"
         SoundType.SHOUT -> "Shouting"
         SoundType.KNOCK -> "Knocking"
@@ -434,16 +429,16 @@ private fun compassPoint(bearing: Double): String {
     return points[((bearing / 45.0).roundToInt()) % points.size]
 }
 
-// The packet has no timestamp field (Contract 1), so the time shown is when this phone first
-// heard the SOS, which is within seconds of sending while the victim is in range.
-private fun heardText(record: SosRecord, now: Long): String {
+// About the radio, not sound: how long since this phone last heard the SOS packet. The packet
+// has no timestamp field (Contract 1), so the first time shown is when this phone first heard it.
+private fun lastSignalText(record: SosRecord, now: Long): String {
     val first = HEARD_AT.format(Instant.ofEpochMilli(record.firstHeardAt))
     val agoSec = ((now - record.lastHeardAt) / 1_000).coerceAtLeast(0)
     val last = when {
-        agoSec < 60 -> "last ${agoSec}s ago"
-        else -> "last ${agoSec / 60} min ago"
+        agoSec < 60 -> "${agoSec}s ago"
+        else -> "${agoSec / 60} min ago"
     }
-    return "$first, $last"
+    return "$last, first heard $first"
 }
 
 // Same scale as Find mode (Contract 6): -90 dBm or weaker is 0%, -40 dBm or stronger is 100%.
@@ -475,7 +470,7 @@ fun rankForDashboard(records: List<SosRecord>, now: Long): DashboardRanking {
 private fun carrierText(record: SosRecord): String =
     "Phone ${phoneLabel(record.carrierId)}, handed off from ${phoneLabel(record.originId)}"
 
-private fun phoneLabel(id: Int) = String.format(Locale.US, "%04X", id)
+fun phoneLabel(id: Int): String = String.format(Locale.US, "%04X", id)
 
 private val HEARD_AT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("d MMM, HH:mm", Locale.US).withZone(ZoneId.systemDefault())

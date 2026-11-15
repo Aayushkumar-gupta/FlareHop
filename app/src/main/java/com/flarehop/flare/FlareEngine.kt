@@ -57,6 +57,8 @@ interface FlareEngine {
 
     fun setBattery(percent: Int)
 
+    fun setFix(fix: Fix)
+
     fun setSound(type: SoundType, atMs: Long)
 
     fun nextPacket(): ByteArray?

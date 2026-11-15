@@ -28,7 +28,6 @@ import com.flarehop.flare.GroupMember
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SosStatus
-import java.util.Locale
 
 // The mesh engine has no separate nearby role: every survivor phone near an SOS joins its group
 // by itself and can take it over. This tab shows that side of the same phone, as a radar.
@@ -44,14 +43,7 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
 
     val myRecord = mySos?.record
     val myId = myRecord?.originId
-    val here = gps?.let {
-        GpsFix(
-            latitude = it.latitude,
-            longitude = it.longitude,
-            accuracyM = if (it.hasAccuracy()) it.accuracy.toDouble() else null,
-            ageMin = ((System.currentTimeMillis() - it.time) / 60_000L).toInt().coerceAtLeast(0),
-        )
-    } ?: myRecord?.let(::fixOf)
+    val here = gps?.toGpsFix() ?: myRecord?.let(::fixOf)
 
     val activeSos = known.filter { !it.cancelled && it.originId != myId }
     // Group phones send no location, so they are placed by signal only.
@@ -198,7 +190,7 @@ private fun sosBlip(record: SosRecord, here: GpsFix?): RadarBlip? {
     )
 }
 
-private fun fixOf(record: SosRecord): GpsFix? {
+fun fixOf(record: SosRecord): GpsFix? {
     val lat = record.latitude ?: return null
     val lon = record.longitude ?: return null
     return GpsFix(lat, lon, record.accuracyM?.toDouble(), record.fixAgeMin ?: 0)
@@ -208,5 +200,3 @@ private fun phoneText(member: GroupMember): String {
     val battery = member.battery?.let { ", $it%" } ?: ""
     return "Phone ${phoneLabel(member.phoneId)}$battery"
 }
-
-private fun phoneLabel(id: Int) = String.format(Locale.US, "%04X", id)

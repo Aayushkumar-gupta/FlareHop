@@ -8,7 +8,6 @@ import com.google.mediapipe.tasks.audio.audioclassifier.AudioClassifierResult
 import com.google.mediapipe.tasks.audio.core.RunningMode
 import com.google.mediapipe.tasks.components.containers.AudioData
 import com.google.mediapipe.tasks.core.BaseOptions
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +23,10 @@ class YamnetListener(
     private val onListening: (Boolean) -> Unit = {},
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    private val pending = ConcurrentHashMap<Long, FloatArray>()
+    // The model answers each window well before the next one is read, so its answer belongs to
+    // the latest samples. Matching by timestamp lost every answer whose timestamp MediaPipe moved.
+    @Volatile
+    private var latest: FloatArray? = null
     private val failures = CoroutineExceptionHandler { _, e ->
         Log.w(TAG, "Sound listener stopped", e)
     }
@@ -50,7 +52,7 @@ class YamnetListener(
                 onListening(false)
                 if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) record.stop()
                 record.release()
-                pending.clear()
+                latest = null
             }
         }
     }
@@ -103,21 +105,26 @@ class YamnetListener(
             window.load(record)
             val timestamp = maxOf(clock(), lastTimestamp + 1)
             lastTimestamp = timestamp
-            pending.keys.filter { it < timestamp - STALE_MS }.forEach(pending::remove)
-            pending[timestamp] = window.buffer.copyOf()
+            latest = window.buffer.copyOf()
             classifier.classifyAsync(window, timestamp)
         }
     }
 
-    // In stream mode MediaPipe hands back only the result, so the samples are matched by timestamp
-    // to apply the loudness gate to the same second the model heard.
+    // In stream mode MediaPipe hands back only the result, so the loudness gate runs on the
+    // samples kept from the window it heard.
     private fun onResult(result: AudioClassifierResult) {
-        val samples = pending.remove(result.timestampMs()) ?: return
+        val samples = latest ?: return
         val heard = result.classificationResults()
             .flatMap { it.classifications() }
             .flatMap { it.categories() }
             .map { Heard(it.categoryName(), it.score()) }
-        signs.onWindow(heard, samples, result.timestampMs())
+        val type = signs.onWindow(heard, samples, clock())
+        val top = heard.maxByOrNull { it.score }
+        Log.d(
+            TAG,
+            "Heard ${top?.label ?: "nothing"} ${top?.score ?: 0f}, loudest " +
+                "${SoundGate.loudnessDbfs(samples)} dBFS, sent ${type ?: "nothing"}",
+        )
     }
 
     companion object {
@@ -125,7 +132,6 @@ class YamnetListener(
         const val SAMPLE_RATE = 16_000
         const val WINDOW_MS = 1_000L
         private const val MAX_RESULTS = 5
-        private const val STALE_MS = 10_000L
         private const val TAG = "YamnetListener"
     }
 }

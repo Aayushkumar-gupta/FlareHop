@@ -97,4 +97,16 @@ class FindTrackerTest {
         val reading = FindTracker().add(signal(rssi = -60, atMs = 12_345L))
         assertEquals(12_345L, reading.atMs)
     }
+
+    @Test
+    fun theChangeIsTheGainOfTheNewestFiveOverTheFiveBefore() {
+        val reading = FindTracker().addAll(-80, -80, -80, -80, -80, -78, -78, -78, -78, -78)
+        assertEquals(2.0, reading.change, 0.001)
+        assertEquals(Trend.STEADY, reading.trend)
+    }
+
+    @Test
+    fun theChangeIsZeroUntilTenReadings() {
+        assertEquals(0.0, FindTracker().addAll(-90, -50, -50).change, 0.001)
+    }
 }

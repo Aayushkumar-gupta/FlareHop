@@ -10,6 +10,7 @@ import com.flarehop.flare.SosDetails
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 // Victim and Nearby are both the engine's SURVIVOR role: every survivor phone can send its own
 // SOS and also carry others'. Only the Rescuer tab can switch the role, after a confirm.
@@ -36,8 +37,21 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
     private val _findTarget = MutableStateFlow<Long?>(null)
     val findTarget: StateFlow<Long?> = _findTarget.asStateFlow()
 
+    // Kept from the start, so Track can show what happened before it was opened.
+    private val history = SosHistory()
+    private val _tracks = MutableStateFlow<Map<Long, SosTrack>>(emptyMap())
+    val tracks: StateFlow<Map<Long, SosTrack>> = _tracks.asStateFlow()
+
     init {
         engine.setRole(_role.value)
+        // Every new fix goes into this phone's SOS, so one sent before GPS locked on still gets
+        // a position.
+        viewModelScope.launch {
+            locationReader.location.collect { locationReader.lastFix()?.let(engine::setFix) }
+        }
+        viewModelScope.launch {
+            engine.knownSos.collect { _tracks.value = history.update(it) }
+        }
     }
 
     fun openTab(tab: Tab) {

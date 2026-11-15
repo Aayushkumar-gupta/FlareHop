@@ -29,7 +29,6 @@ import com.flarehop.flare.FlareConstants
 import com.flarehop.flare.SosDetails
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SosStatus
-import java.util.Locale
 
 private enum class MeshState { SEARCHING, JOINED, STARTED }
 
@@ -136,6 +135,15 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
                 textAlign = TextAlign.Center,
             )
         }
+        // A rescuer's card is headed by the same ID, so the victim can tell them which one is theirs.
+        item {
+            Text(
+                text = "You are phone ${phoneLabel(record.originId)}",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+        }
         if (mine.status == SosStatus.HANDED_OFF) {
             item {
                 Text(
@@ -146,17 +154,21 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
             }
         }
         item { LowBatteryLine(mine.status, record.battery, phonesNearby = group.size) }
-        item { MeshStatus(state = meshState, phones = group.size) }
-        item {
-            Text(
-                text = when (survivors.size) {
-                    0 -> "No other survivors heard yet"
-                    1 -> "1 other survivor in the network"
-                    else -> "${survivors.size} other survivors in the network"
-                },
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
+        item { MeshStatus(state = meshState, phones = group.size, rescuerHeard = record.acked) }
+        // Other victims' SOS, not phones that heard this one, so the heading only shows when
+        // there is one: "no other survivors" read as "nobody heard you" next to a rescuer's receipt.
+        if (survivors.isNotEmpty()) {
+            item {
+                Text(
+                    text = if (survivors.size == 1) {
+                        "1 other SOS nearby"
+                    } else {
+                        "${survivors.size} other SOS nearby"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
         items(survivors, key = { it.messageId }) { survivor ->
             SurvivorCard(record = survivor, here = here, now = now)
@@ -165,24 +177,24 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
 }
 
 @Composable
-private fun MeshStatus(state: MeshState, phones: Int) {
-    val (title, hint) = when (state) {
-        MeshState.SEARCHING ->
+// Rescuers send no STANDBY, so they never count as phones nearby; the receipt is how this phone
+// knows one heard it.
+private fun MeshStatus(state: MeshState, phones: Int, rescuerHeard: Boolean) {
+    val (title, hint) = when {
+        state == MeshState.JOINED ->
+            (if (phones == 1) "Connected: 1 phone" else "Connected: $phones phones") to
+                "These phones have your signal and can carry your SOS if your battery runs low."
+
+        rescuerHeard ->
+            "A rescuer has your signal" to
+                "No other phone nearby to carry your SOS yet. Any Flarehop phone that comes " +
+                "close joins by itself."
+
+        state == MeshState.SEARCHING ->
             "Looking for a mesh nearby" to
                 "Your SOS is going out. Phones that hear it join by themselves."
 
-        MeshState.JOINED -> (
-            if (phones ==
-                1
-            ) {
-                "Connected: 1 phone"
-            } else {
-                "Connected: $phones phones"
-            }
-            ) to
-            "These phones have your signal and can carry your SOS if your battery runs low."
-
-        MeshState.STARTED ->
+        else ->
             "You started a new mesh" to
                 "No phone nearby yet. Any Flarehop phone that comes close joins and carries your SOS."
     }
@@ -230,12 +242,6 @@ private fun SurvivorCard(record: SosRecord, here: Position?, now: Long) {
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
-            val conditions = conditions(record)
-            Text(
-                text = peopleText(record.people) +
-                    if (conditions.isEmpty()) "" else ", ${conditions.joinToString()}",
-                style = MaterialTheme.typography.bodyLarge,
-            )
             Text(
                 text = "Location: ${locationText(record, here)}",
                 style = MaterialTheme.typography.bodyLarge,
@@ -246,7 +252,7 @@ private fun SurvivorCard(record: SosRecord, here: Position?, now: Long) {
                 style = MaterialTheme.typography.bodyLarge,
             )
             Text(
-                text = "Heard ${((now - record.lastHeardAt) / 1_000).coerceAtLeast(0)}s ago",
+                text = "Last signal ${((now - record.lastHeardAt) / 1_000).coerceAtLeast(0)}s ago",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -254,15 +260,7 @@ private fun SurvivorCard(record: SosRecord, here: Position?, now: Long) {
     }
 }
 
-private fun conditions(record: SosRecord) = listOfNotNull(
-    "trapped".takeIf { record.trapped },
-    "injured".takeIf { record.injured },
-    "medical need".takeIf { record.medical },
-    "water rising".takeIf { record.water },
-    "fire".takeIf { record.fire },
-)
-
-// One tap sends the SOS; 0 people means "not given" (Contract 2).
+// One tap sends the SOS with nothing to fill in; 0 people means "not given" (Contract 2).
 private val NO_DETAILS = SosDetails(
     people = 0,
     injured = false,
@@ -275,5 +273,3 @@ private val NO_DETAILS = SosDetails(
 // STANDBY goes out every 5 seconds, so three missed rounds means no phone is answering.
 private const val SEARCH_MS = 15_000L
 private const val SOS_BUTTON_SIZE = 220
-
-private fun phoneLabel(id: Int) = String.format(Locale.US, "%04X", id)
