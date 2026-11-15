@@ -138,7 +138,7 @@ fun FindScreen(flare: FlareViewModel, messageId: Long, modifier: Modifier = Modi
                 style = MaterialTheme.typography.headlineSmall,
             )
         }
-        if (lost || current == null) {
+        if (lost) {
             Text(
                 text = if (current == null) "Waiting for the signal" else "Signal lost",
                 style = MaterialTheme.typography.headlineMedium,
