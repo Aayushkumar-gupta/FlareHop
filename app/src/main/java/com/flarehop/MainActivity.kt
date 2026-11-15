@@ -35,9 +35,9 @@ import com.flarehop.flare.FlareService
 import com.flarehop.flare.RealFlareEngine
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosDetails
+import com.flarehop.ui.DEVELOPMENT
 import com.flarehop.ui.FlareViewModel
 import com.flarehop.ui.MainScreen
-import com.flarehop.ui.DEVELOPMENT
 import com.flarehop.ui.theme.FlarehopTheme
 
 class MainActivity : ComponentActivity() {
@@ -175,11 +175,3 @@ fun RadioTestScreen(modifier: Modifier = Modifier, onOpenApp: () -> Unit = {}) {
         }
     }
 }
-
-
-
-
-
-
-
-

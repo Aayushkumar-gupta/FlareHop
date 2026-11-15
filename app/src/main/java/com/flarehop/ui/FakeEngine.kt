@@ -13,6 +13,8 @@ import com.flarehop.flare.SosDetails
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SosStatus
 import com.flarehop.flare.SoundType
+import kotlin.math.roundToInt
+import kotlin.random.Random
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -26,8 +28,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
-import kotlin.random.Random
 
 // Pass a main-thread scope such as viewModelScope: state is changed without locks,
 // which is only safe while every change runs on one thread.
@@ -96,7 +96,13 @@ class FakeEngine(
         _mySos.value = MySos(record, SosStatus.SENDING)
         _group.value = listOf(
             GroupMember(phoneId, isCarrier = true, battery = battery, rssi = null, lastHeardAt = t),
-            GroupMember(FAKE_STANDBY_ID, isCarrier = false, battery = FAKE_STANDBY_BATTERY, rssi = -62, lastHeardAt = t),
+            GroupMember(
+                FAKE_STANDBY_ID,
+                isCarrier = false,
+                battery = FAKE_STANDBY_BATTERY,
+                rssi = -62,
+                lastHeardAt = t,
+            ),
         )
         emitLog(LogType.JOINED, record.messageId, FAKE_STANDBY_ID)
         session.launch {
@@ -135,7 +141,8 @@ class FakeEngine(
         if (mine != null && mine.status == SosStatus.SENDING) {
             _mySos.value = mine.copy(record = mine.record.copy(battery = battery))
         }
-        _group.value = _group.value.map { if (it.phoneId == phoneId) it.copy(battery = battery) else it }
+        _group.value =
+            _group.value.map { if (it.phoneId == phoneId) it.copy(battery = battery) else it }
         if (battery < FlareConstants.HANDOFF_BATTERY_PERCENT) handOffMine()
     }
 
@@ -144,7 +151,8 @@ class FakeEngine(
         soundAtMs = atMs
         val mine = _mySos.value ?: return
         if (mine.status == SosStatus.SENDING) {
-            _mySos.value = mine.copy(record = mine.record.copy(sound = type, soundAgeMin = soundAgeMin(now())))
+            _mySos.value =
+                mine.copy(record = mine.record.copy(sound = type, soundAgeMin = soundAgeMin(now())))
         }
     }
 
@@ -162,7 +170,8 @@ class FakeEngine(
     }
 
     private fun start() {
-        session = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+        session =
+            CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
         _knownSos.value = sampleRecords(now())
         session.launch {
             while (isActive) {
@@ -207,9 +216,17 @@ class FakeEngine(
         if (mine.status != SosStatus.SENDING) return
         val next = _group.value
             .filter { !it.isCarrier }
-            .maxWithOrNull(compareBy<GroupMember> { it.battery ?: -1 }.thenByDescending { it.phoneId })
+            .maxWithOrNull(
+                compareBy<GroupMember> {
+                    it.battery ?: -1
+                }.thenByDescending { it.phoneId },
+            )
             ?: return
-        _mySos.value = MySos(mine.record.copy(carrierId = next.phoneId, battery = next.battery), SosStatus.HANDED_OFF)
+        _mySos.value =
+            MySos(
+                mine.record.copy(carrierId = next.phoneId, battery = next.battery),
+                SosStatus.HANDED_OFF,
+            )
         _group.value = _group.value.map { it.copy(isCarrier = it.phoneId == next.phoneId) }
         emitLog(LogType.HANDOFF_SENT, mine.record.messageId, next.phoneId)
     }
@@ -224,7 +241,8 @@ class FakeEngine(
             soundAgeMin = soundAgeMin(t),
         )
         _mySos.value = MySos(record, SosStatus.SENDING)
-        _group.value = _group.value.map { it.copy(isCarrier = it.phoneId == phoneId, lastHeardAt = t) }
+        _group.value =
+            _group.value.map { it.copy(isCarrier = it.phoneId == phoneId, lastHeardAt = t) }
         emitLog(LogType.TOOK_OVER, record.messageId, phoneId)
     }
 
@@ -233,8 +251,20 @@ class FakeEngine(
         val t = now()
         _mySos.value = MySos(target, SosStatus.STANDING_BY)
         _group.value = listOf(
-            GroupMember(target.carrierId, isCarrier = true, battery = target.battery, rssi = target.lastRssi, lastHeardAt = t),
-            GroupMember(phoneId, isCarrier = false, battery = battery, rssi = null, lastHeardAt = t),
+            GroupMember(
+                target.carrierId,
+                isCarrier = true,
+                battery = target.battery,
+                rssi = target.lastRssi,
+                lastHeardAt = t,
+            ),
+            GroupMember(
+                phoneId,
+                isCarrier = false,
+                battery = battery,
+                rssi = null,
+                lastHeardAt = t,
+            ),
         )
         emitLog(LogType.JOINED, target.messageId, phoneId)
     }
@@ -245,7 +275,13 @@ class FakeEngine(
         val carrier = if (toStandby) FAKE_STANDBY_ID else record.originId
         val carrierBattery = if (toStandby) FAKE_STANDBY_BATTERY else SAMPLE_A_BATTERY
         _knownSos.value = _knownSos.value.map {
-            if (it.messageId == record.messageId) it.copy(carrierId = carrier, battery = carrierBattery) else it
+            if (it.messageId ==
+                record.messageId
+            ) {
+                it.copy(carrierId = carrier, battery = carrierBattery)
+            } else {
+                it
+            }
         }
         rssiByMessage.remove(record.messageId)
         emitLog(LogType.TOOK_OVER, record.messageId, carrier)
@@ -282,14 +318,44 @@ class FakeEngine(
     // These four match the Contract 5 score checks (80, 70, 61 and 5), so the dashboard
     // sort can be checked by eye. Coordinates are made-up sample values.
     private fun sampleRecords(t: Long) = listOf(
-        sample(HANDOFF_SAMPLE_ID, 0x0A01, people = 2, injured = true, trapped = true,
-            battery = SAMPLE_A_BATTERY, fix = Fix(27.7172, 85.3240, 12, 1), t = t),
-        sample(STANDBY_SAMPLE_ID, 0x0B02, people = 2, trapped = true, battery = 60,
-            sound = SoundType.KNOCK, soundAgeMin = 2, t = t),
-        sample(0x3C4D5E6FL, 0x0C03, people = 4, water = true, battery = 15,
-            fix = Fix(27.7180, 85.3255, 30, 31), firstHeardAt = t - 30 * 60_000L, t = t),
-        sample(0x4D5E6F70L, 0x0D04, people = 1, battery = null,
-            fix = Fix(27.7165, 85.3231, 8, 0), t = t),
+        sample(
+            HANDOFF_SAMPLE_ID,
+            0x0A01,
+            people = 2,
+            injured = true,
+            trapped = true,
+            battery = SAMPLE_A_BATTERY,
+            fix = Fix(27.7172, 85.3240, 12, 1),
+            t = t,
+        ),
+        sample(
+            STANDBY_SAMPLE_ID,
+            0x0B02,
+            people = 2,
+            trapped = true,
+            battery = 60,
+            sound = SoundType.KNOCK,
+            soundAgeMin = 2,
+            t = t,
+        ),
+        sample(
+            0x3C4D5E6FL,
+            0x0C03,
+            people = 4,
+            water = true,
+            battery = 15,
+            fix = Fix(27.7180, 85.3255, 30, 31),
+            firstHeardAt = t - 30 * 60_000L,
+            t = t,
+        ),
+        sample(
+            0x4D5E6F70L,
+            0x0D04,
+            people = 1,
+            battery = null,
+            fix = Fix(27.7165, 85.3231, 8, 0),
+            t = t,
+        ),
     )
 
     private fun sample(

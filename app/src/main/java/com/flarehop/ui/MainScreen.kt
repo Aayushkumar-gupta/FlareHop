@@ -82,11 +82,7 @@ private fun ModeBanner() {
 // Text sits in the icon slot because the icon library is not on the Build list,
 // and a large word is easier to hit than a small icon anyway.
 @Composable
-private fun RowScope.RoleTab(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
+private fun RowScope.RoleTab(label: String, selected: Boolean, onClick: () -> Unit) {
     NavigationBarItem(
         selected = selected,
         onClick = onClick,

@@ -68,7 +68,9 @@ fun RadarView(blips: List<RadarBlip>, modifier: Modifier = Modifier) {
             val (far, angle) = when {
                 meters != null && bearing != null ->
                     (meters / RANGE_M).toFloat().coerceIn(0f, 1f) to (bearing.toFloat() - 90f)
+
                 rssi != null -> (1f - signalFraction(rssi)) to estimatedAngle(blip.phoneId)
+
                 else -> return@forEach
             }
             val distance = radius * (MIN_BLIP_RADIUS + far * (1f - MIN_BLIP_RADIUS))
@@ -117,7 +119,10 @@ private fun estimatedAngle(phoneId: Int) = (phoneId * GOLDEN_ANGLE_DEG) % 360f
 
 private fun pointAt(center: Offset, distance: Float, angleDeg: Float): Offset {
     val rad = Math.toRadians(angleDeg.toDouble())
-    return Offset(center.x + distance * cos(rad).toFloat(), center.y + distance * sin(rad).toFloat())
+    return Offset(
+        center.x + distance * cos(rad).toFloat(),
+        center.y + distance * sin(rad).toFloat(),
+    )
 }
 
 // Phone Bluetooth rarely reaches this far, so any phone heard fits inside the outer ring.

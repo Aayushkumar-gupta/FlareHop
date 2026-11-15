@@ -44,7 +44,13 @@ fun NearbyScreen(engine: FlareEngine, modifier: Modifier = Modifier) {
         )
         if (mySos != null) {
             Text(
-                text = if (group.size == 1) "1 phone in this group" else "${group.size} phones in this group",
+                text = if (group.size ==
+                    1
+                ) {
+                    "1 phone in this group"
+                } else {
+                    "${group.size} phones in this group"
+                },
                 style = MaterialTheme.typography.bodyLarge,
             )
         }

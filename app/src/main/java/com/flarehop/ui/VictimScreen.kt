@@ -56,9 +56,12 @@ fun VictimScreen(engine: FlareEngine, modifier: Modifier = Modifier) {
 
     val statusText = when (mySos?.status) {
         null -> null
+
         SosStatus.SENDING ->
             if (myRecord?.acked == true) "A rescuer received your SOS" else "Sending"
+
         SosStatus.STANDING_BY -> "Standing by"
+
         SosStatus.HANDED_OFF -> "Handed off"
     }
 
