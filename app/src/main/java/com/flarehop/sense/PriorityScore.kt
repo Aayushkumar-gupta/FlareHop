@@ -1,7 +1,6 @@
 package com.flarehop.sense
 
 import com.flarehop.flare.SosRecord
-import com.flarehop.flare.SoundType
 
 enum class PriorityBand { CRITICAL, HIGH, NORMAL }
 
@@ -32,12 +31,15 @@ object PriorityScore {
         compareByDescending<SosRecord> { score(it, nowMs) }.thenBy { it.firstHeardAt }
 
     private fun heardSoundRecently(record: SosRecord, nowMs: Long): Boolean {
-        if (record.sound == SoundType.NONE) return false
-        val ageAtLastCopy = record.soundAgeMin ?: return false
-        // soundAgeMin was measured when the newest copy arrived, so the time since then must be added.
-        return ageAtLastCopy + minutesBetween(record.lastHeardAt, nowMs) <= 10
+        if (!record.sound.isSignOfLife) return false
+        val ageAtLastCopy = record.soundAgeSec ?: return false
+        // soundAgeSec was measured when the newest copy arrived, so the time since then is added.
+        val sinceCopySec = ((nowMs - record.lastHeardAt) / 1_000L).coerceAtLeast(0L)
+        return ageAtLastCopy + sinceCopySec <= SOUND_WINDOW_SEC
     }
 
     private fun minutesBetween(fromMs: Long, toMs: Long): Int =
         ((toMs - fromMs) / 60_000L).toInt().coerceAtLeast(0)
+
+    private const val SOUND_WINDOW_SEC = 10 * 60
 }

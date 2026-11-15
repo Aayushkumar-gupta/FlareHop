@@ -20,7 +20,7 @@ class PacketCodecTest {
         originId = 0x1234,
         carrierId = 0x1234,
         sound = SoundType.KNOCK,
-        soundAgeMin = 2,
+        soundAgeSec = 42,
         latitude = 11.2588,
         longitude = 75.7804,
         accuracyM = 12,
@@ -53,7 +53,7 @@ class PacketCodecTest {
         assertEquals(0x2C, u8(bytes, 20))
         assertEquals(0x00, u8(bytes, 21))
         assertEquals(47, u8(bytes, 22))
-        assertEquals(2, u8(bytes, 23))
+        assertEquals(42, u8(bytes, 23))
     }
 
     @Test
@@ -76,7 +76,7 @@ class PacketCodecTest {
 
     @Test
     fun valuesAboveTheCapAreClamped() {
-        val packet = sos.copy(accuracyM = 900, fixAgeMin = 600, soundAgeMin = 300)
+        val packet = sos.copy(accuracyM = 900, fixAgeMin = 600, soundAgeSec = 100_000)
         val bytes = PacketCodec.encode(packet)
         assertEquals(254, u8(bytes, 18))
         assertEquals(254, u8(bytes, 19))
@@ -85,14 +85,21 @@ class PacketCodecTest {
 
     @Test
     fun unknownBatteryAndNoSoundUse255() {
-        val packet = sos.copy(battery = null, sound = SoundType.NONE, soundAgeMin = 5)
+        val packet = sos.copy(battery = null, sound = SoundType.NONE, soundAgeSec = 5)
         val bytes = PacketCodec.encode(packet)
         val back = decoded(bytes) as SosPacket
         assertEquals(0, u8(bytes, 9))
         assertEquals(255, u8(bytes, 22))
         assertEquals(255, u8(bytes, 23))
         assertNull(back.battery)
-        assertNull(back.soundAgeMin)
+        assertNull(back.soundAgeSec)
+    }
+
+    @Test
+    fun crowdNoiseTravelsAsCode5() {
+        val bytes = PacketCodec.encode(sos.copy(sound = SoundType.CROWD, soundAgeSec = 1))
+        assertEquals(5, bytes[9].toInt())
+        assertEquals(SoundType.CROWD, (decoded(bytes) as SosPacket).sound)
     }
 
     @Test
@@ -214,5 +221,17 @@ class PacketCodecTest {
         assertEquals(handoff, decoded(PacketCodec.encode(handoff)))
         assertEquals("zero id", dropReason(PacketCodec.encode(handoff.copy(messageId = 0L))))
         assertEquals("zero id", dropReason(PacketCodec.encode(handoff.copy(carrierId = 0))))
+    }
+
+    @Test
+    fun soundAgeIsExactToTheSecondForTwoMinutesThenInWholeMinutes() {
+        fun roundTrip(seconds: Int) =
+            (decoded(PacketCodec.encode(sos.copy(soundAgeSec = seconds))) as SosPacket).soundAgeSec
+        assertEquals(0, roundTrip(0))
+        assertEquals(37, roundTrip(37))
+        assertEquals(119, roundTrip(119))
+        assertEquals(120, roundTrip(150))
+        assertEquals(600, roundTrip(630))
+        assertEquals(136 * 60, roundTrip(100_000))
     }
 }

@@ -1,5 +1,7 @@
 package com.flarehop.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,13 +24,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.flarehop.flare.FlareConstants
 import com.flarehop.flare.SosDetails
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SosStatus
+import com.flarehop.sense.HeardSound
+import com.flarehop.sense.SignsOfLife
 
 private enum class MeshState { SEARCHING, JOINED, STARTED }
 
@@ -98,6 +104,8 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
     val known by engine.knownSos.collectAsState()
     val gps by flare.locationReader.location.collectAsState()
     val names by flare.names.collectAsState()
+    val listening by flare.listening.collectAsState()
+    val heard by flare.heardSound.collectAsState()
     val now = rememberNow()
 
     val mine = mySos ?: return
@@ -145,6 +153,11 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
                 )
+            }
+        }
+        if (mine.status == SosStatus.SENDING) {
+            item {
+                HeardHere(listening = listening, heard = heard, battery = record.battery, now = now)
             }
         }
         item { LowBatteryLine(mine.status, record.battery, phonesNearby = group.size) }
@@ -214,6 +227,42 @@ private fun MeshStatus(state: MeshState, phones: Int, rescuerHeard: Boolean) {
 }
 
 @Composable
+private fun HeardHere(listening: Boolean, heard: HeardSound?, battery: Int?, now: Long) {
+    val context = LocalContext.current
+    val micAllowed = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+        PackageManager.PERMISSION_GRANTED
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = heard?.let {
+                "Heard here: ${soundLabel(it.type)}, ${secondsAgoText((now - it.atMs) / 1_000L)}"
+            } ?: "No sound heard yet",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = micText(allowed = micAllowed, listening = listening, battery = battery),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+// The listener only reports itself on once the sound model has loaded, about a second after the
+// SOS, so "not listening" alone does not mean the permission is missing.
+private fun micText(allowed: Boolean, listening: Boolean, battery: Int?): String = when {
+    !allowed -> "Microphone not allowed. Allow it in Settings so rescuers hear your knocks."
+
+    battery != null && battery < SignsOfLife.STOP_BELOW_PERCENT ->
+        "Microphone off below ${SignsOfLife.STOP_BELOW_PERCENT}% battery, to keep your SOS going."
+
+    !listening -> "Starting the microphone..."
+
+    else -> "Listening for knocks and voices. Rescuers see what this phone hears."
+}
+
+@Composable
 private fun LowBatteryLine(status: SosStatus, battery: Int?, phonesNearby: Int) {
     if (status != SosStatus.SENDING || battery == null) return
     if (battery >= FlareConstants.HANDOFF_BATTERY_PERCENT) return
@@ -245,7 +294,10 @@ private fun SurvivorCard(record: SosRecord, name: String, here: Position?, now: 
                 text = "Location: ${locationText(record, here)}",
                 style = MaterialTheme.typography.bodyLarge,
             )
-            Text(text = "Sound: ${soundText(record)}", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = "Sound: ${soundText(record, now)}",
+                style = MaterialTheme.typography.bodyLarge,
+            )
             Text(
                 text = "Battery: ${record.battery?.let { "$it%" } ?: "Unknown"}",
                 style = MaterialTheme.typography.bodyLarge,

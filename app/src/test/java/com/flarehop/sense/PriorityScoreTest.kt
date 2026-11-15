@@ -17,7 +17,7 @@ class PriorityScoreTest {
         water: Boolean = false,
         battery: Int? = null,
         sound: SoundType = SoundType.NONE,
-        soundAgeMin: Int? = null,
+        soundAgeSec: Int? = null,
         firstHeardAt: Long = now,
         lastHeardAt: Long = now,
         messageId: Long = 1L,
@@ -37,7 +37,7 @@ class PriorityScoreTest {
         fire = false,
         battery = battery,
         sound = sound,
-        soundAgeMin = soundAgeMin,
+        soundAgeSec = soundAgeSec,
         firstHeardAt = firstHeardAt,
         lastHeardAt = lastHeardAt,
         lastRssi = null,
@@ -65,7 +65,7 @@ class PriorityScoreTest {
             trapped = true,
             battery = 60,
             sound = SoundType.KNOCK,
-            soundAgeMin = 2,
+            soundAgeSec = 120,
         ),
         70,
         PriorityBand.CRITICAL,
@@ -82,8 +82,18 @@ class PriorityScoreTest {
     fun onePersonNoFlagsIsNormal5() = check(record(people = 1), 5, PriorityBand.NORMAL)
 
     @Test
+    fun crowdNoiseAddsNothing() {
+        val crowd = record(sound = SoundType.CROWD, soundAgeSec = 0)
+        assertEquals(0, PriorityScore.score(crowd, now))
+    }
+
+    @Test
     fun soundStopsCountingOnceOlderThanTenMinutes() {
-        val knock = record(sound = SoundType.KNOCK, soundAgeMin = 8, lastHeardAt = now - 3 * minute)
+        val knock = record(
+            sound = SoundType.KNOCK,
+            soundAgeSec = 480,
+            lastHeardAt = now - 3 * minute,
+        )
         assertEquals(0, PriorityScore.score(knock, now))
     }
 

@@ -34,7 +34,7 @@ class MeshGroupTest {
                 originId = carrierId,
                 carrierId = carrierId,
                 sound = SoundType.NONE,
-                soundAgeMin = null,
+                soundAgeSec = null,
                 latitude = null,
                 longitude = null,
                 accuracyM = null,
