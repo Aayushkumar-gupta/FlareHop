@@ -22,7 +22,7 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 | Handoff | Hand every SOS to the phone with the most battery, take over after silence, two-carrier conflict | Next |
 | Screens | Survivor, Rescuer, Find mode, Log, Demo settings | Done |
 | Priority score | Ranks every SOS by urgency | Done |
-| Signs of life | On-device sound detection with YAMNet while the app is open | Done (in the background: next) |
+| Signs of life | On-device sound detection with YAMNet while this phone sends its own SOS, also with the screen off | Done |
 | Auto-join with the app closed | The app wakes when it hears an SOS | Planned |
 
 ## Using the app
@@ -70,11 +70,11 @@ app/src/main/
     │   ├── FlareEngine.kt      the engine interface the screens use
     │   ├── PacketCodec.kt      24-byte packet encode and decode
     │   ├── RealFlareEngine.kt  the engine: records, receipts, phones in range, log
-    │   ├── Flare.kt            the engine and battery watcher the app shares
+    │   ├── Flare.kt            the engine, battery watcher and signs of life the app shares
     │   ├── AdvertPlanner.kt    decides when to start, update, pause or resume the advert
     │   ├── BleAdvertiser.kt    broadcasts the engine's packets every 300 ms
     │   ├── BleScanner.kt       hears Flarehop packets and hands them to the engine
-    │   └── FlareService.kt     foreground service that runs the radio and battery watcher
+    │   └── FlareService.kt     foreground service: radio, battery watcher and sound listener
     ├── ui/                     screens (App lead)
     │   ├── MainScreen.kt       the four tabs
     │   ├── VictimScreen.kt     Survivor tab
@@ -152,7 +152,7 @@ The app asks for these when it opens:
 |---|---|
 | Nearby devices (Bluetooth advertise and scan) | To broadcast the SOS and hear other phones. Without it the beacon cannot start. |
 | Location, **precise** | Android only delivers Bluetooth scan results to apps with precise location, because Bluetooth beacons can reveal where you are. With Approximate or none, the phone broadcasts but hears nothing. |
-| Microphone | To listen for signs of life. Without it the SOS still goes out, without sounds. |
+| Microphone | To listen for signs of life while this phone sends its own SOS, also with the screen off. Without it the SOS still goes out, without sounds. |
 | Notifications (Android 13 and newer) | To show the "Flarehop is on" notification of the foreground service. |
 
 The phone's **Location setting must be on** as well: with it off, Android delivers no Bluetooth scan results, and the app shows a banner saying so.
