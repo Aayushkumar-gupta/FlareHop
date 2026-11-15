@@ -1,334 +1,279 @@
 package com.flarehop.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.flarehop.flare.FlareConstants
 import com.flarehop.flare.SosDetails
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SosStatus
 import java.util.Locale
 
-private data class Here(val latitude: Double, val longitude: Double)
+private enum class MeshState { SEARCHING, JOINED, STARTED }
 
 @Composable
 fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
     val engine = flare.engine
     val mySos by engine.mySos.collectAsState()
+
+    Column(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        RadioBanner(state = rememberRadioState())
+        if (mySos == null) {
+            SosButton(onClick = { flare.sendSos(NO_DETAILS) }, modifier = Modifier.weight(1f))
+        } else {
+            MeshView(flare = flare, modifier = Modifier.weight(1f))
+            OutlinedButton(
+                onClick = flare::cancelSos,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+            ) {
+                Text(text = "Cancel SOS", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SosButton(onClick: () -> Unit, modifier: Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Button(
+            onClick = onClick,
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            ),
+            modifier = Modifier.size(SOS_BUTTON_SIZE.dp),
+        ) {
+            Text(
+                text = "SOS",
+                style = MaterialTheme.typography.displayLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Text(
+            text = "Tap to call for help",
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+// Phones never connect: sending the SOS is what joins or starts the mesh. Every survivor phone
+// that hears it starts sending STANDBY and shows up in group, so an empty group after the
+// search time means this phone is the first one here.
+@Composable
+private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
+    val engine = flare.engine
+    val mySos by engine.mySos.collectAsState()
     val group by engine.group.collectAsState()
     val known by engine.knownSos.collectAsState()
     val gps by flare.locationReader.location.collectAsState()
-    val carried by engine.carried.collectAsState()
-    val listening by flare.listening.collectAsState()
+    val now = rememberNow()
 
-    val myRecord = mySos?.record
-    val myId = myRecord?.originId
-    val sentLat = myRecord?.latitude
-    val sentLon = myRecord?.longitude
-    val currentGps = gps
+    val mine = mySos ?: return
+    val record = mine.record
+    val here = gps?.let { Position(it.latitude, it.longitude) }
+        ?: record.latitude?.let { lat -> record.longitude?.let { Position(lat, it) } }
 
-    val here = when {
-        currentGps != null -> Here(currentGps.latitude, currentGps.longitude)
-        sentLat != null && sentLon != null -> Here(sentLat, sentLon)
-        else -> null
+    val meshState = when {
+        group.isNotEmpty() -> MeshState.JOINED
+        now - record.firstHeardAt < SEARCH_MS -> MeshState.SEARCHING
+        else -> MeshState.STARTED
     }
 
-    // Group phones send no location, so they are placed by signal only.
-    val groupBlips = group
-        .filter { it.phoneId != myId && it.rssi != null }
-        .map { member ->
-            val role = if (member.carriedCount > 0) "Carrying ${member.carriedCount}" else "Phone"
-            RadarBlip(
-                phoneId = member.phoneId,
-                label = "$role ${phoneLabel(member.phoneId)}",
-                rssi = member.rssi,
-            )
-        }
-    val sosBlips = known
-        .filter { !it.cancelled && it.carrierId != myId }
-        .map { sosBlip(it, here) }
-    val blips = (groupBlips + sosBlips).distinctBy { it.phoneId }
+    val survivors = known
+        .filter { !it.cancelled && it.originId != record.originId }
+        .groupBy { it.originId }
+        .map { (_, copies) -> copies.maxBy { it.firstHeardAt } }
+        .sortedByDescending { it.lastHeardAt }
 
-    val statusText = when (mySos?.status) {
-        null -> null
-
-        SosStatus.SENDING ->
-            if (myRecord?.acked == true) "A rescuer received your SOS" else "Sending"
-
-        SosStatus.HANDED_OFF -> "Handed off"
-    }
-
-    val sentWithoutFix = myRecord != null && (sentLat == null || sentLon == null)
-
-    Box(modifier = modifier.fillMaxSize()) {
-        RadarView(blips = blips, modifier = Modifier.fillMaxSize())
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
-            ) {
-                NorthCompass()
-                NearbyPeople(count = blips.size)
-            }
-            if (statusText != null) {
-                Text(text = statusText, style = MaterialTheme.typography.headlineSmall)
-            }
-            if (listening) {
-                Text(text = "Listening for sounds", style = MaterialTheme.typography.titleMedium)
-            }
-            // In the mesh every phone also carries other phones' SOS (engine.carried).
-            if (carried.isNotEmpty()) {
-                Text(
-                    text = if (carried.size == 1) {
-                        "Carrying 1 SOS for another phone"
-                    } else {
-                        "Carrying ${carried.size} SOS for other phones"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-            RadioBanner(state = rememberRadioState())
-        }
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            if (mySos == null) {
-                SosPanel(onSend = flare::sendSos)
-            } else {
-                OutlinedButton(
-                    onClick = { flare.cancelSos() },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                ) {
-                    Text(text = "Cancel SOS", style = MaterialTheme.typography.titleMedium)
-                }
-            }
-            if (sentWithoutFix) {
-                Text(
-                    text = "Your SOS was sent without a location. " +
-                        "Rescuers will find you by signal.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SosPanel(onSend: (SosDetails) -> Unit) {
-    var people by rememberSaveable { mutableIntStateOf(1) }
-    var injured by rememberSaveable { mutableStateOf(false) }
-    var trapped by rememberSaveable { mutableStateOf(false) }
-    var medical by rememberSaveable { mutableStateOf(false) }
-    var water by rememberSaveable { mutableStateOf(false) }
-    var fire by rememberSaveable { mutableStateOf(false) }
-
-    // Slightly see-through so the radar behind it stays visible.
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-        tonalElevation = 2.dp,
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedButton(onClick = { people-- }, enabled = people > 1) {
-                    Text(text = "-", style = MaterialTheme.typography.titleLarge)
-                }
-                Text(
-                    text = if (people == 1) "1 person" else "$people people",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedButton(onClick = { people++ }, enabled = people < MAX_PEOPLE) {
-                    Text(text = "+", style = MaterialTheme.typography.titleLarge)
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Toggle("Injured", injured, { injured = it }, Modifier.weight(1f))
-                Toggle("Trapped", trapped, { trapped = it }, Modifier.weight(1f))
-                Toggle("Medical", medical, { medical = it }, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Toggle("Water rising", water, { water = it }, Modifier.weight(1f))
-                Toggle("Fire", fire, { fire = it }, Modifier.weight(1f))
-            }
-            Button(
-                onClick = {
-                    onSend(
-                        SosDetails(
-                            people = people,
-                            injured = injured,
-                            trapped = trapped,
-                            water = water,
-                            medical = medical,
-                            fire = fire,
-                        ),
-                    )
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
-                modifier = Modifier.fillMaxWidth().height(72.dp),
-            ) {
-                Text(text = "Send SOS", style = MaterialTheme.typography.headlineSmall)
-            }
+        item {
             Text(
-                text = "Also sends your location and battery level.",
-                style = MaterialTheme.typography.bodyMedium,
+                text = when {
+                    mine.status == SosStatus.HANDED_OFF -> "SOS handed on"
+                    record.acked -> "A rescuer received your SOS"
+                    else -> "SOS sent"
+                },
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.error,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
             )
+        }
+        if (mine.status == SosStatus.HANDED_OFF) {
+            item {
+                Text(
+                    text = "Phone ${phoneLabel(record.carrierId)} keeps sending your SOS.",
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        item { LowBatteryLine(mine.status, record.battery, phonesNearby = group.size) }
+        item { MeshStatus(state = meshState, phones = group.size) }
+        item {
+            Text(
+                text = when (survivors.size) {
+                    0 -> "No other survivors heard yet"
+                    1 -> "1 other survivor in the network"
+                    else -> "${survivors.size} other survivors in the network"
+                },
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        items(survivors, key = { it.messageId }) { survivor ->
+            SurvivorCard(record = survivor, here = here, now = now)
         }
     }
 }
 
 @Composable
-private fun Toggle(label: String, on: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier) {
-    if (on) {
-        Button(onClick = { onChange(false) }, modifier = modifier) { Text(label) }
-    } else {
-        OutlinedButton(onClick = { onChange(true) }, modifier = modifier) { Text(label) }
+private fun MeshStatus(state: MeshState, phones: Int) {
+    val (title, hint) = when (state) {
+        MeshState.SEARCHING ->
+            "Looking for a mesh nearby" to
+                "Your SOS is going out. Phones that hear it join by themselves."
+
+        MeshState.JOINED -> (
+            if (phones ==
+                1
+            ) {
+                "Connected: 1 phone"
+            } else {
+                "Connected: $phones phones"
+            }
+            ) to
+            "These phones have your signal and can carry your SOS if your battery runs low."
+
+        MeshState.STARTED ->
+            "You started a new mesh" to
+                "No phone nearby yet. Any Flarehop phone that comes close joins and carries your SOS."
     }
-}
-
-// Contract 1 packs people into 4 bits, so 15 is the most a packet can carry.
-private const val MAX_PEOPLE = 15
-
-// The radar is always drawn north-up, so the compass is fixed rather than following the phone.
-@Composable
-private fun NorthCompass() {
-    val ring = MaterialTheme.colorScheme.outline
-    val north = MaterialTheme.colorScheme.error
-    val south = MaterialTheme.colorScheme.onSurfaceVariant
-    val face = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = "N",
-            style = MaterialTheme.typography.labelLarge,
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
-            color = north,
+            textAlign = TextAlign.Center,
         )
-        Canvas(Modifier.size(COMPASS_SIZE.dp)) {
-            val r = size.minDimension / 2f
-            val half = r * 0.28f
-            drawCircle(face, r, center)
-            drawCircle(ring, r, center, style = Stroke(1.5.dp.toPx()))
-            drawPath(needle(center, r * 0.8f, half, pointsUp = true), north)
-            drawPath(needle(center, r * 0.8f, half, pointsUp = false), south)
-            drawCircle(ring, 2.dp.toPx(), center)
-        }
+        Text(
+            text = hint,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
-private fun needle(center: Offset, length: Float, halfWidth: Float, pointsUp: Boolean) =
-    Path().apply {
-        val tipY = if (pointsUp) center.y - length else center.y + length
-        moveTo(center.x, tipY)
-        lineTo(center.x - halfWidth, center.y)
-        lineTo(center.x + halfWidth, center.y)
-        close()
-    }
-
-private const val COMPASS_SIZE = 44
-
-// The plan says nothing pairs or connects, so the count is of phones heard nearby.
 @Composable
-private fun NearbyPeople(count: Int) {
-    Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(
-            text = "$count nearby",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-        )
-        (1..minOf(count, MAX_PEOPLE_SHOWN)).forEach { n ->
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-            ) {
-                Text(
-                    text = "Person $n",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                )
-            }
-        }
-        if (count > MAX_PEOPLE_SHOWN) {
+private fun LowBatteryLine(status: SosStatus, battery: Int?, phonesNearby: Int) {
+    if (status != SosStatus.SENDING || battery == null) return
+    if (battery >= FlareConstants.HANDOFF_BATTERY_PERCENT) return
+    Text(
+        text = if (phonesNearby > 0) {
+            "Battery low. Handing your SOS to the phone nearby with the most battery."
+        } else {
+            "Battery low and no phone nearby can take over. Stay close to other phones."
+        },
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.error,
+        textAlign = TextAlign.Center,
+    )
+}
+
+@Composable
+private fun SurvivorCard(record: SosRecord, here: Position?, now: Long) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Text(
-                text = "+${count - MAX_PEOPLE_SHOWN} more",
-                style = MaterialTheme.typography.labelLarge,
+                text = "Survivor ${phoneLabel(record.originId)}",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            val conditions = conditions(record)
+            Text(
+                text = peopleText(record.people) +
+                    if (conditions.isEmpty()) "" else ", ${conditions.joinToString()}",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = "Location: ${locationText(record, here)}",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(text = "Sound: ${soundText(record)}", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = "Battery: ${record.battery?.let { "$it%" } ?: "Unknown"}",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                text = "Heard ${((now - record.lastHeardAt) / 1_000).coerceAtLeast(0)}s ago",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
 
-private const val MAX_PEOPLE_SHOWN = 3
+private fun conditions(record: SosRecord) = listOfNotNull(
+    "trapped".takeIf { record.trapped },
+    "injured".takeIf { record.injured },
+    "medical need".takeIf { record.medical },
+    "water rising".takeIf { record.water },
+    "fire".takeIf { record.fire },
+)
 
-// Real distance and direction need both positions; otherwise fall back to signal strength.
-private fun sosBlip(record: SosRecord, here: Here?): RadarBlip {
-    val lat = record.latitude
-    val lon = record.longitude
-    val label = "SOS ${phoneLabel(record.carrierId)}"
-    if (here == null || lat == null || lon == null) {
-        return RadarBlip(phoneId = record.carrierId, label = label, rssi = record.lastRssi)
-    }
-    return RadarBlip(
-        phoneId = record.carrierId,
-        label = label,
-        rssi = record.lastRssi,
-        distanceM = distanceMeters(here.latitude, here.longitude, lat, lon),
-        bearingDeg = bearingDegrees(here.latitude, here.longitude, lat, lon),
-    )
-}
+// One tap sends the SOS; 0 people means "not given" (Contract 2).
+private val NO_DETAILS = SosDetails(
+    people = 0,
+    injured = false,
+    trapped = false,
+    water = false,
+    medical = false,
+    fire = false,
+)
+
+// STANDBY goes out every 5 seconds, so three missed rounds means no phone is answering.
+private const val SEARCH_MS = 15_000L
+private const val SOS_BUTTON_SIZE = 220
 
 private fun phoneLabel(id: Int) = String.format(Locale.US, "%04X", id)

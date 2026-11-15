@@ -91,9 +91,11 @@ class FlareService : Service() {
 
     private fun startListening() {
         if (Flare.listening.value || !granted(Manifest.permission.RECORD_AUDIO)) return
-        runCatching { listener.start(scope) }
-            .onSuccess { Flare.setListening(true) }
-            .onFailure { Log.w(TAG, "Sound listener did not start", it) }
+        // Off for now: MediaPipe crashes in native code when the SOS starts, which takes the
+        // whole app down because runCatching cannot catch a native crash.
+        // runCatching { listener.start(scope) }
+        //     .onSuccess { Flare.setListening(true) }
+        //     .onFailure { Log.w(TAG, "Sound listener did not start", it) }
     }
 
     private fun stopListening() {

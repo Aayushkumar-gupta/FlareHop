@@ -92,8 +92,8 @@ private fun EventRow(event: LogEvent) {
 private fun eventText(type: LogType) = when (type) {
     LogType.HEARD -> "SOS heard"
     LogType.DROPPED -> "Packet dropped"
-    LogType.JOINED -> "Phone joined"
-    LogType.HANDOFF_SENT -> "Handoff sent"
+    LogType.JOINED -> "Phone in range"
+    LogType.HANDOFF_SENT -> "Handing off"
     LogType.TOOK_OVER -> "Took over"
     LogType.BACKED_OFF -> "Backed off"
     LogType.RECEIPT_SENT -> "Receipt sent"
@@ -101,15 +101,22 @@ private fun eventText(type: LogType) = when (type) {
     LogType.CANCELLED -> "SOS cancelled"
 }
 
+// The engine puts a different phone in phoneId for each event type, so each one is worded
+// for what that phone did. Message ID 0 means the event is not about one SOS.
 private fun eventDetail(event: LogEvent): String {
-    val reason = event.reason
-    if (event.type == LogType.DROPPED) return "Reason: ${reason ?: "unknown"}"
-    return String.format(
-        Locale.US,
-        "SOS %08X, phone %04X",
-        event.messageId,
-        event.phoneId,
-    )
+    val sos = String.format(Locale.US, "SOS %08X", event.messageId)
+    val phone = String.format(Locale.US, "phone %04X", event.phoneId)
+    return when (event.type) {
+        LogType.DROPPED -> "Reason: ${event.reason ?: "unknown"}"
+        LogType.JOINED -> if (event.messageId == 0L) phone else "$phone, carrying $sos"
+        LogType.HEARD -> "$sos from $phone"
+        LogType.HANDOFF_SENT -> "$sos to $phone"
+        LogType.TOOK_OVER -> "$sos, now sent by this phone"
+        LogType.BACKED_OFF -> "$sos, $phone carries it"
+        LogType.RECEIPT_SENT -> "For $sos"
+        LogType.RECEIPT_MATCHED -> "$sos, from rescuer ${phone.removePrefix("phone ")}"
+        LogType.CANCELLED -> "$sos, by $phone"
+    }
 }
 
 private val TIME: DateTimeFormatter =

@@ -48,9 +48,7 @@ fun MainScreen(flare: FlareViewModel) {
 
             tab == Tab.RESCUER -> SosListScreen(flare = flare, modifier = modifier)
 
-            tab == Tab.LOG -> EventLogScreen(flare = flare, modifier = modifier)
-
-            tab == Tab.DEMO -> DemoSettingsScreen(flare = flare, modifier = modifier)
+            tab == Tab.NEARBY -> NearbyScreen(flare = flare, modifier = modifier)
 
             else -> VictimScreen(flare = flare, modifier = modifier)
         }
@@ -58,10 +56,9 @@ fun MainScreen(flare: FlareViewModel) {
 }
 
 private fun tabLabel(tab: Tab) = when (tab) {
-    Tab.SURVIVOR -> "Survivor"
+    Tab.VICTIM -> "Victim"
+    Tab.NEARBY -> "Nearby"
     Tab.RESCUER -> "Rescuer"
-    Tab.LOG -> "Log"
-    Tab.DEMO -> "Demo"
 }
 
 // Text sits in the icon slot because the icon library is not on the Build list,

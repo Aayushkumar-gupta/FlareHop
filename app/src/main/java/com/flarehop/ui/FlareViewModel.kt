@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-enum class Tab { SURVIVOR, RESCUER, LOG, DEMO }
+// Victim and Nearby are both the engine's SURVIVOR role: every survivor phone can send its own
+// SOS and also carry others'. Only the Rescuer tab can switch the role, after a confirm.
+enum class Tab { VICTIM, NEARBY, RESCUER }
 
 class FlareViewModel(application: Application) : AndroidViewModel(application) {
     val engine: FlareEngine = Flare.engine
@@ -35,7 +37,7 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
     val role: StateFlow<Role> = _role.asStateFlow()
 
     private val _tab = MutableStateFlow(
-        if (_role.value == Role.RESCUER) Tab.RESCUER else Tab.SURVIVOR,
+        if (_role.value == Role.RESCUER) Tab.RESCUER else Tab.VICTIM,
     )
     val tab: StateFlow<Tab> = _tab.asStateFlow()
 

@@ -59,7 +59,7 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
-private data class RescuerPosition(val latitude: Double, val longitude: Double)
+data class Position(val latitude: Double, val longitude: Double)
 
 @Composable
 fun SosListScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
@@ -159,15 +159,10 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
     val gps by flare.locationReader.location.collectAsState()
     val now = rememberNow()
 
-    val here = gps?.let { RescuerPosition(it.latitude, it.longitude) }
+    val here = gps?.let { Position(it.latitude, it.longitude) }
 
-    // Contract 2: a changed SOS arrives with a new message ID, so show only the newest per victim.
-    val newest = records
-        .groupBy { it.originId }
-        .map { (_, copies) -> copies.maxBy { it.firstHeardAt } }
-    val active = newest.filter { !it.cancelled }
-        .sortedWith(PriorityScore.mostUrgentFirst(now))
-    val cancelled = newest.filter { it.cancelled }.sortedByDescending { it.lastHeardAt }
+    val (active, cancelled) = rankForDashboard(records, now)
+    val newest = active + cancelled
 
     Column(modifier.fillMaxSize()) {
         DashboardHeader(activeCount = active.size, onStop = flare::stopRescuing)
@@ -267,7 +262,7 @@ private fun SosCard(
     record: SosRecord,
     rank: Int?,
     now: Long,
-    here: RescuerPosition?,
+    here: Position?,
     onFind: (() -> Unit)?,
 ) {
     val band = band(record, now)
@@ -301,6 +296,11 @@ private fun SosCard(
                 InfoRow("Heard", heardText(record, now))
                 InfoRow("Battery", record.battery?.let { "$it%" } ?: "Unknown")
                 InfoRow("Signal", signalText(record.lastRssi))
+                // Shown only after a handoff, so the rescuer can see the SOS now comes from a
+                // different phone than the victim's own.
+                if (record.carrierId != record.originId) {
+                    InfoRow("Carrier", carrierText(record))
+                }
                 ReceiptLine(record)
                 if (onFind != null) {
                     Button(onClick = onFind, modifier = Modifier.fillMaxWidth().height(56.dp)) {
@@ -399,7 +399,7 @@ fun peopleText(people: Int) = when (people) {
     else -> "$people people"
 }
 
-private fun soundText(record: SosRecord): String {
+fun soundText(record: SosRecord): String {
     val label = when (record.sound) {
         SoundType.NONE -> return "None heard"
         SoundType.SPEECH -> "Speech"
@@ -415,7 +415,7 @@ private fun soundText(record: SosRecord): String {
     }
 }
 
-private fun locationText(record: SosRecord, here: RescuerPosition?): String {
+fun locationText(record: SosRecord, here: Position?): String {
     val lat = record.latitude
     val lon = record.longitude
     if (lat == null || lon == null) return "No GPS fix. Follow the signal."
@@ -457,6 +457,25 @@ fun signalText(rssi: Int?): String {
     }
     return "$rssi dBm, $word"
 }
+
+data class DashboardRanking(val active: List<SosRecord>, val cancelled: List<SosRecord>)
+
+// Contract 2: a changed SOS arrives with a new message ID, so only the newest per victim is
+// kept. Active ones are ranked by Contract 5; cancelled ones go last, most recent first.
+fun rankForDashboard(records: List<SosRecord>, now: Long): DashboardRanking {
+    val newest = records
+        .groupBy { it.originId }
+        .map { (_, copies) -> copies.maxBy { it.firstHeardAt } }
+    return DashboardRanking(
+        active = newest.filter { !it.cancelled }.sortedWith(PriorityScore.mostUrgentFirst(now)),
+        cancelled = newest.filter { it.cancelled }.sortedByDescending { it.lastHeardAt },
+    )
+}
+
+private fun carrierText(record: SosRecord): String =
+    "Phone ${phoneLabel(record.carrierId)}, handed off from ${phoneLabel(record.originId)}"
+
+private fun phoneLabel(id: Int) = String.format(Locale.US, "%04X", id)
 
 private val HEARD_AT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("d MMM, HH:mm", Locale.US).withZone(ZoneId.systemDefault())
