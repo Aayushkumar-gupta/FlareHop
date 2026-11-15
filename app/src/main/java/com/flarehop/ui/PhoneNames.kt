@@ -48,4 +48,22 @@ data class PhoneNames(
     } ?: "An SOS"
 
     fun survivorNumber(originId: Int): Int? = survivors[originId]
+
+    // The name with the phone's own code, the code the victim reads on their screen, so a
+    // rescuer's "Survivor 1" can be matched to the person in front of them.
+    fun survivorWithCode(originId: Int): String = if (originId in
+        me
+    ) {
+        survivor(originId)
+    } else {
+        "${survivor(originId)} · ${phoneLabel(originId)}"
+    }
+
+    fun phoneWithCode(id: Int): String = if (id in
+        me
+    ) {
+        phone(id)
+    } else {
+        "${phone(id)} · ${phoneLabel(id)}"
+    }
 }

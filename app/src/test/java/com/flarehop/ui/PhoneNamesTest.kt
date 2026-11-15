@@ -1,6 +1,5 @@
 package com.flarehop.ui
 
-import com.flarehop.flare.DirectSignal
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SoundType
 import org.junit.Assert.assertEquals
@@ -101,29 +100,6 @@ class PhoneNamesTest {
     }
 
     @Test
-    fun signalIsTheMedianSoOneSpikeDoesNotMoveIt() {
-        val smoother = SignalSmoother()
-        listOf(-70, -71, -69, -40, -70).forEach { smoother.add(signal(it)) }
-        assertEquals(-70, smoother.add(signal(-70)))
-    }
-
-    @Test
-    fun signalStartsAgainForANewCarrier() {
-        val smoother = SignalSmoother()
-        repeat(5) { smoother.add(signal(-50)) }
-        assertEquals(-85, smoother.add(signal(-85, carrierId = 9)))
-    }
-
-    @Test
-    fun signalKeepsOnlyTheLastTenReadings() {
-        val smoother = SignalSmoother()
-        repeat(10) { smoother.add(signal(-40)) }
-        var last = 0
-        repeat(10) { last = smoother.add(signal(-80)) }
-        assertEquals(-80, last)
-    }
-
-    @Test
     fun heardTimeMovesInTenSecondSteps() {
         assertEquals("just now", agoText(0))
         assertEquals("just now", agoText(9_999))
@@ -131,7 +107,4 @@ class PhoneNamesTest {
         assertEquals("50s ago", agoText(59_000))
         assertEquals("2 min ago", agoText(150_000))
     }
-
-    private fun signal(rssi: Int, carrierId: Int = 7) =
-        DirectSignal(messageId = 1L, carrierId = carrierId, rssi = rssi, atMs = 0L)
 }

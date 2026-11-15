@@ -8,6 +8,8 @@ data class CarrierSeen(
     val isVictim: Boolean,
     val battery: Int?,
     val rssi: Int?,
+    // When this phone first heard that phone broadcasting the SOS.
+    val connectedAt: Long,
     val lastHeardAt: Long,
 )
 
@@ -28,8 +30,9 @@ class SosHistory {
     fun update(records: List<SosRecord>): Map<Long, SosTrack> {
         records.forEach { record ->
             val before = last[record.messageId]
+            val seenBefore = carriers[record.messageId]?.containsKey(record.carrierId) == true
+            changes(before, record, seenBefore).forEach { add(record.messageId, it) }
             if (before == null || record.lastHeardAt != before.lastHeardAt) heardFrom(record)
-            changes(before, record).forEach { add(record.messageId, it) }
             last[record.messageId] = record
         }
         return last.keys.associateWith { id ->
@@ -47,6 +50,7 @@ class SosHistory {
             isVictim = record.carrierId == record.originId,
             battery = record.battery,
             rssi = record.lastRssi,
+            connectedAt = seen[record.carrierId]?.connectedAt ?: record.lastHeardAt,
             lastHeardAt = record.lastHeardAt,
         )
     }
@@ -57,12 +61,18 @@ class SosHistory {
         while (entries.size > MAX_ENTRIES) entries.removeFirst()
     }
 
-    private fun changes(before: SosRecord?, now: SosRecord): List<HistoryEntry> {
+    // Phones never pair; "connected" here means this phone started hearing that phone's packets
+    // for this SOS, which is what a rescuer needs to know.
+    private fun changes(
+        before: SosRecord?,
+        now: SosRecord,
+        seenBefore: Boolean,
+    ): List<HistoryEntry> {
         val at = now.lastHeardAt
         fun entry(kind: HistoryKind, text: String) = HistoryEntry(at, kind, text)
         if (before == null) {
             return listOfNotNull(
-                entry(HistoryKind.FIRST_HEARD, "First heard from ${carrierText(now)}"),
+                entry(HistoryKind.FIRST_HEARD, "Connected to ${carrierText(now)}"),
                 now.takeIf { it.sound != SoundType.NONE }
                     ?.let { entry(HistoryKind.SOUND, "${soundName(it.sound)} heard") },
                 positionText(null, now)?.let { entry(HistoryKind.POSITION, it) },
@@ -70,10 +80,11 @@ class SosHistory {
         }
         return listOfNotNull(
             now.takeIf { it.carrierId != before.carrierId }?.let {
+                val connected = if (seenBefore) "Connected again to" else "Connected to"
                 val text = if (it.carrierId == it.originId) {
-                    "The victim's phone ${phoneLabel(it.originId)} is sending again"
+                    "$connected ${carrierText(it)}, the victim is sending"
                 } else {
-                    "Now carried by ${carrierText(it)}"
+                    "$connected ${carrierText(it)}, now carrying the SOS"
                 }
                 entry(HistoryKind.CARRIER, text)
             },

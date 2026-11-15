@@ -1,5 +1,6 @@
 package com.flarehop.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -13,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import com.flarehop.ui.theme.MeanderBorder
 
 @Composable
 fun MainScreen(flare: FlareViewModel) {
@@ -22,10 +24,13 @@ fun MainScreen(flare: FlareViewModel) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            NavigationBar {
-                Tab.entries.forEach { entry ->
-                    TabItem(label = tabLabel(entry), selected = tab == entry) {
-                        flare.openTab(entry)
+            Column {
+                MeanderBorder()
+                NavigationBar {
+                    Tab.entries.forEach { entry ->
+                        TabItem(label = tabLabel(entry), selected = tab == entry) {
+                            flare.openTab(entry)
+                        }
                     }
                 }
             }

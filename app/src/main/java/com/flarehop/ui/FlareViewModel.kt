@@ -9,12 +9,10 @@ import com.flarehop.flare.LogType
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosDetails
 import com.flarehop.sense.HeardSound
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 // Victim and Nearby are both the engine's SURVIVOR role: every survivor phone can send its own
@@ -51,19 +49,9 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
     private val _tracks = MutableStateFlow<Map<Long, SosTrack>>(emptyMap())
     val tracks: StateFlow<Map<Long, SosTrack>> = _tracks.asStateFlow()
 
-    // Kept here rather than in a screen so the names and smoothed signals survive tab switches.
+    // Kept here rather than in a screen so the names survive tab switches.
     private val _names = MutableStateFlow(PhoneNames())
     val names: StateFlow<PhoneNames> = _names.asStateFlow()
-
-    // Where each survivor sits on the radar, by message ID. Refreshed every second from both
-    // phones' GPS, with tiny moves and leaps filtered out.
-    private val pointFilter = RadarPointFilter()
-    private val _points = MutableStateFlow<Map<Long, GpsReference>>(emptyMap())
-    val points: StateFlow<Map<Long, GpsReference>> = _points.asStateFlow()
-
-    private val smoother = SignalSmoother()
-    private val _signals = MutableStateFlow<Map<Long, Int>>(emptyMap())
-    val signals: StateFlow<Map<Long, Int>> = _signals.asStateFlow()
 
     // Which rescuer answered each SOS, for the Nearby graph. The engine only says so in its log.
     private val _receiptsBy = MutableStateFlow<Map<Long, Int>>(emptyMap())
@@ -89,19 +77,6 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
                 val myIds = setOfNotNull(mine?.record?.originId) + carried.map { it.carrierId }
                 _names.value.update(known, group.map { it.phoneId }, myIds)
             }.collect { _names.value = it }
-        }
-        viewModelScope.launch {
-            while (isActive) {
-                val here = locationReader.location.value?.toGpsFix()
-                    ?: engine.mySos.value?.record?.let(::fixOf)
-                _points.value = pointFilter.update(here, engine.knownSos.value)
-                delay(RADAR_REFRESH_MS)
-            }
-        }
-        viewModelScope.launch {
-            engine.directSignal.collect { signal ->
-                _signals.value = _signals.value + (signal.messageId to smoother.add(signal))
-            }
         }
         viewModelScope.launch {
             engine.log.collect { event ->
@@ -155,5 +130,3 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
         locationReader.stop()
     }
 }
-
-private const val RADAR_REFRESH_MS = 1_000L

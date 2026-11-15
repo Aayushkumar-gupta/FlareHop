@@ -6,9 +6,9 @@ import android.os.VibrationEffect
 import android.os.VibratorManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,16 +17,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -37,13 +33,16 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
@@ -51,6 +50,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.flarehop.flare.DirectSignal
+import com.flarehop.ui.theme.Aegean
+import com.flarehop.ui.theme.Bronze
+import com.flarehop.ui.theme.BronzeDim
+import com.flarehop.ui.theme.Ember
+import com.flarehop.ui.theme.EmberCore
+import com.flarehop.ui.theme.Inscription
+import com.flarehop.ui.theme.Mist
+import com.flarehop.ui.theme.NightSea
+import com.flarehop.ui.theme.Parchment
+import com.flarehop.ui.theme.Tide
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -65,8 +74,8 @@ data class FindReading(
     val smoothedRssi: Double,
     val meter: Float,
     val trend: Trend,
-    // dB gained over the last few readings: above 0 is warmer. Drives the needle, which moves
-    // smoothly where the trend only has three steps.
+    // dB gained over the last few readings: above 0 is warmer. Drives the gauge needle, which
+    // moves smoothly where the trend only has three steps.
     val change: Double,
     val beepIntervalMs: Long,
     val atMs: Long,
@@ -136,16 +145,12 @@ class FindTracker {
 fun FindScreen(flare: FlareViewModel, messageId: Long, modifier: Modifier = Modifier) {
     val known by flare.engine.knownSos.collectAsState()
     val tracks by flare.tracks.collectAsState()
-    val points by flare.points.collectAsState()
     val names by flare.names.collectAsState()
+    val gps by flare.locationReader.location.collectAsState()
     val record = known.firstOrNull { it.messageId == messageId }
     val track = tracks[messageId]
     val tracker = remember(messageId) { FindTracker() }
     var reading by remember(messageId) { mutableStateOf<FindReading?>(null) }
-    val heading = rememberHeading()
-    // Held here, not inside the panel: the list items above it come and go with the signal, which
-    // would shift the panel and reset its own state.
-    var threeD by rememberSaveable { mutableStateOf(false) }
     val now = rememberNow()
 
     LaunchedEffect(messageId) {
@@ -158,14 +163,14 @@ fun FindScreen(flare: FlareViewModel, messageId: Long, modifier: Modifier = Modi
     val lost = current == null || now - current.atMs > FindTracker.LOST_AFTER_MS
     Beeper(intervalMs = if (lost) null else current?.beepIntervalMs)
 
-    val gpsReference = points[messageId]
+    val here = gps?.toGpsFix()
+    val there = record?.let(::fixOf)
+    val gpsReference = here?.let { h -> there?.let { LocationEstimator.gps(h, it) } }
     // After a handoff the signal comes from the carrier, not from where the victim is.
     val handedOff = record != null && record.carrierId != record.originId
     val bluetooth = current?.takeIf { !lost && (!handedOff || gpsReference == null) }
         ?.let { LocationEstimator.bluetooth(it.smoothedRssi.roundToInt()) }
     val estimate = LocationEstimator.estimate(gpsReference, bluetooth)
-    // GPS is only trusted for a direction once the victim is further away than its error.
-    val bearing = estimate?.bearingDeg?.takeIf { estimate.distanceM >= MIN_ARROW_M }
 
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         LazyColumn(
@@ -174,76 +179,54 @@ fun FindScreen(flare: FlareViewModel, messageId: Long, modifier: Modifier = Modi
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            item {
-                Text(
-                    text = "Track",
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+            item { Text(text = "TRACK", style = Inscription, color = Bronze) }
             if (record != null) {
                 item {
                     Text(
-                        text = names.survivor(record.originId),
+                        text = names.survivorWithCode(record.originId) +
+                            if (handedOff) ", via ${names.phoneWithCode(record.carrierId)}" else "",
                         style = MaterialTheme.typography.headlineSmall,
                     )
                 }
             }
-            if (bearing != null && heading != null) {
-                item { CompassArrow(angle = Angles.normalize(bearing.toFloat() - heading)) }
-            }
-            directionText(lost, current, bearing, heading)?.let { text ->
-                item {
-                    Text(
-                        text = text,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (lost) MaterialTheme.colorScheme.error else Color.Unspecified,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
+            item { SignalMeter(reading = current?.takeIf { !lost }) }
             estimate?.let {
                 item {
                     Text(
-                        text = estimateText(it),
-                        style = MaterialTheme.typography.titleLarge,
-                        textAlign = TextAlign.Center,
+                        text = "About ${distanceText(it.distanceM)}",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             }
             item {
-                val blip = estimate?.let {
-                    RadarBlip(
-                        phoneId = record?.originId ?: 0,
-                        label = record?.let { r -> names.survivor(r.originId) } ?: "Survivor",
-                        estimate = it,
-                        isSos = true,
-                    )
-                }
-                PositionPanel(blip, threeD = threeD, onThreeD = { threeD = it })
+                Text(
+                    text = when {
+                        current == null ->
+                            "Waiting for the signal. Walk slowly and hold the phone up."
+
+                        lost -> "Signal lost. Walk slowly and hold the phone up."
+
+                        else ->
+                            "Walk slowly. The bar fills and the beeps speed up as you get closer."
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (lost) Ember else Mist,
+                    textAlign = TextAlign.Center,
+                )
             }
-            if (current != null && !lost) {
-                item { SignalMeter(current, names) }
-            } else {
-                item {
-                    Text(
-                        text = "Walk slowly and hold the phone up. Beeps start again once the " +
-                            "SOS is heard.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center,
-                    )
-                }
+            track?.carriers?.takeIf { it.isNotEmpty() }?.let { carriers ->
+                item { SectionTitle("Phones that carried it") }
+                items(carriers.sortedByDescending { it.isVictim }) { CarrierRow(it, names, now) }
             }
-            item { SectionTitle("Phones that carried this SOS (${track?.carriers?.size ?: 0})") }
-            items(track?.carriers.orEmpty().sortedByDescending { it.isVictim }) { carrier ->
-                CarrierRow(carrier = carrier, names = names, now = now)
+            track?.history?.takeIf { it.isNotEmpty() }?.let { history ->
+                item { SectionTitle("Latest") }
+                items(history.takeLast(HISTORY_SHOWN).asReversed()) { HistoryRow(it) }
             }
-            item { SectionTitle("History") }
-            items(track?.history.orEmpty().asReversed()) { entry -> HistoryRow(entry) }
         }
         OutlinedButton(
             onClick = flare::stopFinding,
+            border = BorderStroke(1.dp, BronzeDim),
             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).height(56.dp),
         ) {
             Text(text = "Back to the list", style = MaterialTheme.typography.titleMedium)
@@ -251,128 +234,88 @@ fun FindScreen(flare: FlareViewModel, messageId: Long, modifier: Modifier = Modi
     }
 }
 
-private fun directionText(
-    lost: Boolean,
-    reading: FindReading?,
-    bearing: Double?,
-    heading: Float?,
-): String? = when {
-    bearing != null && heading != null -> "Walk the way the arrow points"
-    lost -> if (reading == null) "Waiting for the signal" else "Signal lost"
-    else -> null
-}
-
-private fun estimateText(estimate: LocationEstimate): String =
-    "About ${distanceText(estimate.distanceM)} (±${distanceText(estimate.errorM)})"
-
-// Where the survivor is, from the same estimate as the arrow above: flat on the ground in 2D,
-// or which floor in 3D, with this phone at the bottom of the building.
+// Warmer is the fire, colder the sea. The word, the percentage and a thick bar that glides to each
+// new reading, so the rescuer can read it at arm's length while walking.
 @Composable
-private fun PositionPanel(blip: RadarBlip?, threeD: Boolean, onThreeD: (Boolean) -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = if (threeD) "Height" else "Position",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                SingleChoiceSegmentedButtonRow {
-                    listOf(false, true).forEachIndexed { index, option ->
-                        SegmentedButton(
-                            selected = threeD == option,
-                            onClick = { onThreeD(option) },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
-                        ) {
-                            Text(if (option) "3D" else "2D")
-                        }
-                    }
-                }
-            }
-            val blips = listOfNotNull(blip)
-            Box(Modifier.fillMaxWidth().height(PANEL_HEIGHT.dp)) {
-                if (threeD) {
-                    VerticalRadarView(blips, Modifier.fillMaxSize(), topInset = 16.dp)
-                } else {
-                    RadarView(blips, Modifier.fillMaxSize())
-                }
-            }
-            Text(
-                text = if (threeD) heightLine(blip) else positionLine(blip),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
-private fun positionLine(blip: RadarBlip?): String {
-    val gps = blip?.estimate?.gps ?: return "No GPS position yet. Follow the signal below."
-    return "${distanceText(gps.distanceM)} ${compassPoint(gps.bearingDeg)}"
-}
-
-private fun heightLine(blip: RadarBlip?): String {
-    val estimate = blip?.estimate
-    val height = HeightEstimator.estimate(estimate?.gps, estimate?.bluetooth)
-        ?: return "Height needs both a GPS fix and the Bluetooth signal."
-    return "~${distanceText(height.heightM)} above you"
-}
-
-// With GPS on both phones and a compass, a real arrow toward the victim. It glides instead of
-// jumping.
-@Composable
-private fun CompassArrow(angle: Float) {
-    var target by remember { mutableFloatStateOf(angle) }
-    target = Angles.unwrapNear(target, angle)
-    val shown by animateFloatAsState(
-        targetValue = target,
-        animationSpec = tween(durationMillis = TURN_MS),
-        label = "compass arrow",
+private fun SignalMeter(reading: FindReading?) {
+    val level by animateFloatAsState(
+        targetValue = reading?.meter ?: 0f,
+        animationSpec = tween(durationMillis = METER_MS),
+        label = "signal meter",
     )
-    val color = MaterialTheme.colorScheme.primary
-    val ring = MaterialTheme.colorScheme.outlineVariant
-    Canvas(Modifier.size(DIAL_SIZE.dp)) {
-        val r = size.minDimension / 2f
-        drawCircle(ring, r, center, style = Stroke(2.dp.toPx()))
-        rotate(shown, center) {
-            val path = Path().apply {
-                moveTo(center.x, center.y - r * 0.85f)
-                lineTo(center.x + r * 0.35f, center.y + r * 0.45f)
-                lineTo(center.x, center.y + r * 0.2f)
-                lineTo(center.x - r * 0.35f, center.y + r * 0.45f)
-                close()
-            }
-            drawPath(path, color)
-        }
+    val (word, color) = when (reading?.trend) {
+        null -> "No signal" to BronzeDim
+        Trend.WARMER -> "Warmer" to EmberCore
+        Trend.COLDER -> "Colder" to Aegean
+        Trend.STEADY -> "Steady" to Parchment
     }
-}
-
-@Composable
-private fun SignalMeter(reading: FindReading, names: PhoneNames) {
     Column(
+        modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        SignalGauge(change = reading?.change)
+        Text(text = word, style = MaterialTheme.typography.displaySmall, color = color)
         Text(
-            text = "${(reading.meter * 100).roundToInt()}%",
-            style = MaterialTheme.typography.displayMedium,
-            fontWeight = FontWeight.Bold,
+            text = reading?.let { "${(level * 100).roundToInt()}%" } ?: "--",
+            style = MaterialTheme.typography.displayLarge,
+            color = Parchment,
         )
-        LinearProgressIndicator(
-            progress = { reading.meter },
-            modifier = Modifier.fillMaxWidth().height(24.dp),
-        )
-        Text(
-            text = "${reading.smoothedRssi.roundToInt()} dBm from " +
-                names.phone(reading.carrierId),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Canvas(Modifier.fillMaxWidth().height(METER_HEIGHT.dp)) {
+            val radius = CornerRadius(size.height / 2, size.height / 2)
+            drawRoundRect(Tide, cornerRadius = radius)
+            if (level > 0f) {
+                drawRoundRect(
+                    brush = Brush.horizontalGradient(listOf(Aegean, Bronze, Ember)),
+                    size = Size(size.width * level, size.height),
+                    cornerRadius = radius,
+                )
+            }
+            drawRoundRect(BronzeDim, cornerRadius = radius, style = Stroke(1.5.dp.toPx()))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Far", style = MaterialTheme.typography.labelLarge, color = Mist)
+            Text("Close", style = MaterialTheme.typography.labelLarge, color = Mist)
+        }
+    }
+}
+
+// A dashboard gauge: a half dial from Colder (the sea) through Steady to Warmer (the fire), with a
+// needle that glides to how fast the signal is rising or falling.
+@Composable
+private fun SignalGauge(change: Double?) {
+    val lean = ((change ?: 0.0) / FULL_LEAN_DB).toFloat().coerceIn(-1f, 1f)
+    val shown by animateFloatAsState(
+        targetValue = lean * MAX_LEAN_DEG,
+        animationSpec = tween(durationMillis = METER_MS),
+        label = "signal gauge",
+    )
+    val needle = when {
+        change == null -> BronzeDim
+        change >= FindTracker.TREND_DB -> EmberCore
+        -change >= FindTracker.TREND_DB -> Aegean
+        else -> Bronze
+    }
+    Canvas(Modifier.size(width = GAUGE_WIDTH.dp, height = (GAUGE_WIDTH / 2 + 16).dp)) {
+        val r = size.width / 2f
+        val pivot = Offset(size.width / 2f, r)
+        val stroke = Stroke(14.dp.toPx())
+        val corner = Offset(stroke.width / 2, stroke.width / 2)
+        val box = Size(r * 2 - stroke.width, r * 2 - stroke.width)
+        drawArc(Aegean, 180f, 58f, false, corner, box, style = stroke)
+        drawArc(BronzeDim, 241f, 58f, false, corner, box, style = stroke)
+        drawArc(Ember, 302f, 58f, false, corner, box, style = stroke)
+        rotate(shown, pivot) {
+            drawLine(
+                needle,
+                pivot,
+                Offset(pivot.x, pivot.y - r * 0.78f),
+                strokeWidth = 6.dp.toPx(),
+                cap = StrokeCap.Round,
+            )
+        }
+        drawCircle(Bronze, 10.dp.toPx(), pivot)
+        drawCircle(NightSea, 4.dp.toPx(), pivot)
     }
 }
 
@@ -381,7 +324,6 @@ private fun SectionTitle(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.Bold,
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
     )
 }
@@ -389,22 +331,16 @@ private fun SectionTitle(text: String) {
 @Composable
 private fun CarrierRow(carrier: CarrierSeen, names: PhoneNames, now: Long) {
     val role = if (carrier.isVictim) "victim" else "carrier"
-    val battery = carrier.battery?.let { "$it%" } ?: "battery unknown"
-    val signal = carrier.rssi?.let { "$it dBm" } ?: "no signal reading"
+    val battery = carrier.battery?.let { ", $it%" } ?: ""
+    val connected = HISTORY_TIME.format(Instant.ofEpochMilli(carrier.connectedAt))
     val agoSec = ((now - carrier.lastHeardAt) / 1_000).coerceAtLeast(0)
     val ago = if (agoSec < 60) "${agoSec}s ago" else "${agoSec / 60} min ago"
-    Column(Modifier.fillMaxWidth()) {
-        Text(
-            text = "${names.phone(carrier.phoneId)}, $role",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = "$battery, $signal, last heard $ago",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    val name = names.phoneWithCode(carrier.phoneId)
+    Text(
+        text = "$name, $role$battery, connected $connected, last heard $ago",
+        style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
@@ -447,16 +383,16 @@ private fun Beeper(intervalMs: Long?) {
 }
 
 private val HISTORY_TIME: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("HH:mm:ss", Locale.US).withZone(ZoneId.systemDefault())
+    DateTimeFormatter.ofPattern("HH:mm", Locale.US).withZone(ZoneId.systemDefault())
+
+private const val HISTORY_SHOWN = 5
+private const val METER_MS = 400
+private const val GAUGE_WIDTH = 240
 
 // A dB swing this big leans the needle all the way to Warmer or Colder.
-private const val PANEL_HEIGHT = 280
-private const val TURN_MS = 400
-private const val DIAL_SIZE = 200
-
-// Phone GPS is often 10 to 30 m off, so closer than this the arrow could point anywhere and the
-// signal needle leads instead.
-private const val MIN_ARROW_M = 30.0
+private const val FULL_LEAN_DB = 6.0
+private const val MAX_LEAN_DEG = 90f
+private const val METER_HEIGHT = 36
 private const val BEEP_MS = 80
 private const val BUZZ_MS = 40L
 private const val IDLE_CHECK_MS = 200L

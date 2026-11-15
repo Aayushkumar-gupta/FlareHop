@@ -40,6 +40,7 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
     val carried by engine.carried.collectAsState()
     val group by engine.group.collectAsState()
     val receipts by flare.receiptsBy.collectAsState()
+    val names by flare.names.collectAsState()
     val now = rememberNow()
 
     val myId = mySos?.record?.originId ?: engine.phoneId
@@ -60,7 +61,7 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
 
         carried.isNotEmpty() ->
             "Carrying the SOS of " +
-                carried.joinToString { "phone ${phoneLabel(it.originId)}" }
+                carried.joinToString { names.survivorWithCode(it.originId) }
 
         mySos?.status == SosStatus.SENDING -> "Sending your own SOS"
 
@@ -98,39 +99,31 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
         item { GraphLegend() }
         if (graph.others.isNotEmpty()) {
             item {
-                Text(
-                    text = "Phones in the network",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
+                Text(text = "Phones", style = MaterialTheme.typography.titleLarge)
             }
-            items(graph.others, key = { it.phoneId }) { node -> PhoneRow(node, known) }
+            items(graph.others, key = { it.phoneId }) { node -> PhoneRow(node, names, known) }
         }
     }
 }
 
+// Phones never connect: each arrow is something this phone heard.
 @Composable
 private fun GraphLegend() {
-    Card(Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = "Phones never connect: each arrow is something this phone heard.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            LegendLine(MaterialTheme.colorScheme.outline, dashed = false, "hears, with signal")
-            LegendLine(CARRIER_ORANGE, dashed = true, "SOS handed to the phone it points at")
-            LegendLine(RESCUER_GREEN, dashed = false, "rescuer answered that SOS")
-        }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LegendItem(MaterialTheme.colorScheme.outline, dashed = false, "hears")
+        LegendItem(CARRIER_ORANGE, dashed = true, "carries SOS")
+        LegendItem(RESCUER_GREEN, dashed = false, "answered")
     }
 }
 
 @Composable
-private fun LegendLine(color: Color, dashed: Boolean, text: String) {
+private fun LegendItem(color: Color, dashed: Boolean, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Canvas(Modifier.size(width = 36.dp, height = 12.dp)) {
+        Canvas(Modifier.size(width = 24.dp, height = 10.dp)) {
             val y = size.height / 2f
             drawLine(
                 color,
@@ -138,47 +131,41 @@ private fun LegendLine(color: Color, dashed: Boolean, text: String) {
                 Offset(size.width, y),
                 strokeWidth = 3.dp.toPx(),
                 pathEffect = if (dashed) {
-                    PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 5.dp.toPx()))
+                    PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx()))
                 } else {
                     null
                 },
             )
         }
-        Text(text = "  $text", style = MaterialTheme.typography.bodyMedium)
+        Text(text = " $text", style = MaterialTheme.typography.bodyMedium)
     }
 }
 
 @Composable
-private fun PhoneRow(node: GraphNode, known: List<SosRecord>) {
+private fun PhoneRow(node: GraphNode, names: PhoneNames, known: List<SosRecord>) {
     val part = when (node.kind) {
         NodeKind.RESCUER -> "rescuer"
 
-        NodeKind.VICTIM -> "sending an SOS"
+        NodeKind.VICTIM -> "SOS"
 
         NodeKind.CARRIER ->
-            "carrying " + known
+            "carries " + known
                 .filter { it.carrierId == node.phoneId && it.originId != node.phoneId }
-                .joinToString { "the SOS of ${phoneLabel(it.originId)}" }
+                .joinToString { names.survivorWithCode(it.originId) }
                 .ifEmpty { "an SOS" }
 
-        else -> "in the network"
+        else -> "phone"
     }
-    val battery = node.battery?.let { "$it%" }
-    val signal = node.rssi?.let { rssi ->
-        "$rssi dBm, about ${distanceText(LocationEstimator.bluetooth(rssi).distanceM)}"
-    }
-    Column(Modifier.fillMaxWidth()) {
-        Text(
-            text = "Phone ${phoneLabel(node.phoneId)}, $part",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = listOfNotNull(battery, signal).joinToString().ifEmpty { "Not heard directly" },
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    val details = listOfNotNull(
+        part,
+        node.battery?.let { "$it%" },
+        node.rssi?.let { "about ${distanceText(LocationEstimator.bluetooth(it).distanceM)}" },
+    )
+    Text(
+        text = "${names.phoneWithCode(node.phoneId)}, ${details.joinToString(", ")}",
+        style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 fun fixOf(record: SosRecord): GpsFix? {

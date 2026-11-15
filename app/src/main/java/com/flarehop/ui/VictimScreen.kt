@@ -2,7 +2,19 @@ package com.flarehop.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,8 +25,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -24,10 +34,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.flarehop.flare.FlareConstants
 import com.flarehop.flare.SosDetails
@@ -35,6 +50,16 @@ import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SosStatus
 import com.flarehop.sense.HeardSound
 import com.flarehop.sense.SignsOfLife
+import com.flarehop.ui.theme.Bronze
+import com.flarehop.ui.theme.BronzeDeep
+import com.flarehop.ui.theme.BronzeDim
+import com.flarehop.ui.theme.Ember
+import com.flarehop.ui.theme.EmberCore
+import com.flarehop.ui.theme.EmberDeep
+import com.flarehop.ui.theme.Inscription
+import com.flarehop.ui.theme.Mist
+import com.flarehop.ui.theme.NightSky
+import com.flarehop.ui.theme.Parchment
 
 private enum class MeshState { SEARCHING, JOINED, STARTED }
 
@@ -43,52 +68,133 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
     val engine = flare.engine
     val mySos by engine.mySos.collectAsState()
 
-    Column(
-        modifier = modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        RadioBanner(state = rememberRadioState())
-        if (mySos == null) {
-            SosButton(onClick = { flare.sendSos(NO_DETAILS) }, modifier = Modifier.weight(1f))
-        } else {
-            MeshView(flare = flare, modifier = Modifier.weight(1f))
-            OutlinedButton(
-                onClick = flare::cancelSos,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-            ) {
-                Text(text = "Cancel SOS", style = MaterialTheme.typography.titleMedium)
+    Box(modifier = modifier.fillMaxSize()) {
+        NightSky()
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "FLAREHOP",
+                style = MaterialTheme.typography.labelLarge,
+                letterSpacing = 6.sp,
+                color = BronzeDim,
+            )
+            RadioBanner(state = rememberRadioState())
+            if (mySos == null) {
+                SosButton(
+                    phoneId = engine.phoneId,
+                    onClick = { flare.sendSos(NO_DETAILS) },
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                MeshView(flare = flare, modifier = Modifier.weight(1f))
+                OutlinedButton(
+                    onClick = flare::cancelSos,
+                    border = BorderStroke(1.dp, BronzeDim),
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                ) {
+                    Text(text = "Cancel SOS", style = MaterialTheme.typography.titleMedium)
+                }
             }
         }
     }
 }
 
+// A signal fire: an ember core with rings of light going out from it, the way a beacon on a
+// headland was seen from the sea. Still a plain round SOS button, as big as before.
 @Composable
-private fun SosButton(onClick: () -> Unit, modifier: Modifier) {
+private fun SosButton(phoneId: Int, onClick: () -> Unit, modifier: Modifier) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Button(
-            onClick = onClick,
-            shape = CircleShape,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.error,
-                contentColor = MaterialTheme.colorScheme.onError,
-            ),
-            modifier = Modifier.size(SOS_BUTTON_SIZE.dp),
-        ) {
-            Text(
-                text = "SOS",
-                style = MaterialTheme.typography.displayLarge,
-                fontWeight = FontWeight.Bold,
+        Box(contentAlignment = Alignment.Center) {
+            BeaconRings(Modifier.size(GLOW_SIZE.dp))
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(SOS_BUTTON_SIZE.dp)
+                    .clip(CircleShape)
+                    .background(Brush.radialGradient(listOf(EmberCore, Ember, EmberDeep)))
+                    .border(2.dp, Bronze, CircleShape)
+                    .clickable(onClickLabel = "Send SOS", role = Role.Button, onClick = onClick),
+            ) {
+                Text(
+                    text = "SOS",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = Parchment,
+                )
+            }
+        }
+        Text(text = "LIGHT THE BEACON", style = Inscription, color = Bronze)
+        Text(
+            text = "Tap once to call for help. Your phone keeps calling, even with the screen off.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = Mist,
+            textAlign = TextAlign.Center,
+        )
+        // The code this phone sends and rescuers see on its card, so the owner knows it before
+        // they ever need to call for help.
+        Text(
+            text = "You are phone ${phoneLabel(phoneId)}",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = Parchment,
+        )
+    }
+}
+
+// Two rings of firelight that grow and fade, half a cycle apart.
+@Composable
+private fun BeaconRings(modifier: Modifier) {
+    val pulse by rememberInfiniteTransition(label = "beacon").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(PULSE_MS, easing = LinearEasing)),
+        label = "beacon pulse",
+    )
+    Canvas(modifier) {
+        val inner = SOS_BUTTON_SIZE.dp.toPx() / 2f
+        val outer = size.minDimension / 2f
+        listOf(pulse, (pulse + 0.5f) % 1f).forEach { phase ->
+            drawCircle(
+                color = Ember.copy(alpha = (1f - phase) * 0.45f),
+                radius = inner + (outer - inner) * phase,
+                center = center,
+                style = Stroke(width = (6f - 4f * phase).dp.toPx()),
             )
         }
-        Text(
-            text = "Tap to call for help",
-            style = MaterialTheme.typography.titleLarge,
-            textAlign = TextAlign.Center,
+    }
+}
+
+// Shown while this phone sends its SOS: a small fire that keeps glowing, so the victim can see at
+// a glance that the beacon is still lit.
+@Composable
+private fun BurningBeacon() {
+    val glow by rememberInfiniteTransition(label = "burning").animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(PULSE_MS / 2), RepeatMode.Reverse),
+        label = "burning glow",
+    )
+    Canvas(Modifier.size(SMALL_BEACON_SIZE.dp)) {
+        val r = size.minDimension / 2f
+        drawCircle(
+            Brush.radialGradient(
+                listOf(Ember.copy(alpha = 0.45f * glow), Ember.copy(alpha = 0f)),
+                center,
+                r,
+            ),
+            r,
+            center,
+        )
+        drawCircle(
+            Brush.radialGradient(listOf(EmberCore, Ember, EmberDeep), center, r * 0.55f),
+            r * 0.55f * (0.85f + 0.15f * glow),
+            center,
         )
     }
 }
@@ -102,7 +208,6 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
     val mySos by engine.mySos.collectAsState()
     val group by engine.group.collectAsState()
     val known by engine.knownSos.collectAsState()
-    val gps by flare.locationReader.location.collectAsState()
     val names by flare.names.collectAsState()
     val listening by flare.listening.collectAsState()
     val heard by flare.heardSound.collectAsState()
@@ -110,8 +215,6 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
 
     val mine = mySos ?: return
     val record = mine.record
-    val here = gps?.let { Position(it.latitude, it.longitude) }
-        ?: record.latitude?.let { lat -> record.longitude?.let { Position(lat, it) } }
 
     val meshState = when {
         group.isNotEmpty() -> MeshState.JOINED
@@ -133,6 +236,20 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        item { BurningBeacon() }
+        // An epic line for the moment, then the plain words for anyone who needs them.
+        item {
+            Text(
+                text = when {
+                    mine.status == SosStatus.HANDED_OFF -> "YOUR BEACON PASSED ON"
+                    record.acked -> "A RESCUER SAW YOUR FIRE"
+                    else -> "YOUR BEACON IS BURNING"
+                },
+                style = Inscription,
+                color = Bronze,
+                textAlign = TextAlign.Center,
+            )
+        }
         item {
             Text(
                 text = when {
@@ -142,14 +259,24 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
                 },
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.error,
+                color = Ember,
+                textAlign = TextAlign.Center,
+            )
+        }
+        // A rescuer's card is headed by the same ID, so the victim can tell them which one is theirs.
+        item {
+            Text(
+                text = "You are phone ${phoneLabel(record.originId)}",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Parchment,
                 textAlign = TextAlign.Center,
             )
         }
         if (mine.status == SosStatus.HANDED_OFF) {
             item {
                 Text(
-                    text = "${names.phone(record.carrierId)} keeps sending your SOS.",
+                    text = "${names.phoneWithCode(record.carrierId)} keeps sending your SOS.",
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
                 )
@@ -162,8 +289,8 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
         }
         item { LowBatteryLine(mine.status, record.battery, phonesNearby = group.size) }
         item { MeshStatus(state = meshState, phones = group.size, rescuerHeard = record.acked) }
-        // Other victims' SOS, not phones that heard this one, so the heading only shows when
-        // there is one: "no other survivors" read as "nobody heard you" next to a rescuer's receipt.
+        // Other victims' SOS, not phones that heard this one, so the line only shows when there is
+        // one: "no other survivors" read as "nobody heard you" next to a rescuer's receipt.
         if (survivors.isNotEmpty()) {
             item {
                 Text(
@@ -172,18 +299,10 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
                     } else {
                         "${survivors.size} other SOS nearby"
                     },
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Mist,
                 )
             }
-        }
-        items(survivors, key = { it.originId }) { survivor ->
-            SurvivorCard(
-                record = survivor,
-                name = names.survivor(survivor.originId),
-                here = here,
-                now = now,
-            )
         }
     }
 }
@@ -192,38 +311,18 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
 // Rescuers send no STANDBY, so they never count as phones nearby; the receipt is how this phone
 // knows one heard it.
 private fun MeshStatus(state: MeshState, phones: Int, rescuerHeard: Boolean) {
-    val (title, hint) = when {
-        state == MeshState.JOINED ->
-            (if (phones == 1) "Connected: 1 phone" else "Connected: $phones phones") to
-                "These phones have your signal and can carry your SOS if your battery runs low."
-
-        rescuerHeard ->
-            "A rescuer has your signal" to
-                "No other phone nearby to carry your SOS yet. Any Flarehop phone that comes " +
-                "close joins by itself."
-
-        state == MeshState.SEARCHING ->
-            "Looking for a mesh nearby" to
-                "Your SOS is going out. Phones that hear it join by themselves."
-
-        else ->
-            "You started a new mesh" to
-                "No phone nearby yet. Any Flarehop phone that comes close joins and carries your SOS."
-    }
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            text = hint,
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    Text(
+        text = when {
+            state == MeshState.JOINED && phones == 1 -> "1 phone nearby can carry your SOS"
+            state == MeshState.JOINED -> "$phones phones nearby can carry your SOS"
+            rescuerHeard -> "A rescuer has your signal"
+            state == MeshState.SEARCHING -> "Looking for phones nearby"
+            else -> "No phone nearby yet. Any that comes close joins by itself."
+        },
+        style = MaterialTheme.typography.titleMedium,
+        color = Mist,
+        textAlign = TextAlign.Center,
+    )
 }
 
 @Composable
@@ -278,39 +377,6 @@ private fun LowBatteryLine(status: SosStatus, battery: Int?, phonesNearby: Int) 
     )
 }
 
-@Composable
-private fun SurvivorCard(record: SosRecord, name: String, here: Position?, now: Long) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = name,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = "Location: ${locationText(record, here)}",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Text(
-                text = "Sound: ${soundText(record, now)}",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Text(
-                text = "Battery: ${record.battery?.let { "$it%" } ?: "Unknown"}",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Text(
-                text = "Last signal ${agoText(now - record.lastHeardAt)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
 // One tap sends the SOS with nothing to fill in; 0 people means "not given" (Contract 2).
 private val NO_DETAILS = SosDetails(
     people = 0,
@@ -324,3 +390,6 @@ private val NO_DETAILS = SosDetails(
 // STANDBY goes out every 5 seconds, so three missed rounds means no phone is answering.
 private const val SEARCH_MS = 15_000L
 private const val SOS_BUTTON_SIZE = 220
+private const val GLOW_SIZE = 300
+private const val SMALL_BEACON_SIZE = 72
+private const val PULSE_MS = 2_400
