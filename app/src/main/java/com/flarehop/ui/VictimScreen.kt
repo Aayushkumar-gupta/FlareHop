@@ -20,6 +20,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -42,6 +46,8 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
     val group by engine.group.collectAsState()
     val known by engine.knownSos.collectAsState()
     val gps by flare.locationReader.location.collectAsState()
+    val carried by engine.carried.collectAsState()
+    val listening by flare.listening.collectAsState()
 
     val myRecord = mySos?.record
     val myId = myRecord?.originId
@@ -55,11 +61,11 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
         else -> null
     }
 
-    // STANDBY packets carry no location (Contract 1), so group phones are placed by signal only.
+    // Group phones send no location, so they are placed by signal only.
     val groupBlips = group
         .filter { it.phoneId != myId && it.rssi != null }
         .map { member ->
-            val role = if (member.isCarrier) "Carrier" else "Standby"
+            val role = if (member.carriedCount > 0) "Carrying ${member.carriedCount}" else "Phone"
             RadarBlip(
                 phoneId = member.phoneId,
                 label = "$role ${phoneLabel(member.phoneId)}",
@@ -76,8 +82,6 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
 
         SosStatus.SENDING ->
             if (myRecord?.acked == true) "A rescuer received your SOS" else "Sending"
-
-        SosStatus.STANDING_BY -> "Standing by"
 
         SosStatus.HANDED_OFF -> "Handed off"
     }
@@ -100,6 +104,20 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
             }
             if (statusText != null) {
                 Text(text = statusText, style = MaterialTheme.typography.headlineSmall)
+            }
+            if (listening) {
+                Text(text = "Listening for sounds", style = MaterialTheme.typography.titleMedium)
+            }
+            // In the mesh every phone also carries other phones' SOS (engine.carried).
+            if (carried.isNotEmpty()) {
+                Text(
+                    text = if (carried.size == 1) {
+                        "Carrying 1 SOS for another phone"
+                    } else {
+                        "Carrying ${carried.size} SOS for other phones"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
             }
             RadioBanner(state = rememberRadioState())
         }
@@ -136,6 +154,13 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
 
 @Composable
 private fun SosPanel(onSend: (SosDetails) -> Unit) {
+    var people by rememberSaveable { mutableIntStateOf(1) }
+    var injured by rememberSaveable { mutableStateOf(false) }
+    var trapped by rememberSaveable { mutableStateOf(false) }
+    var medical by rememberSaveable { mutableStateOf(false) }
+    var water by rememberSaveable { mutableStateOf(false) }
+    var fire by rememberSaveable { mutableStateOf(false) }
+
     // Slightly see-through so the radar behind it stays visible.
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -146,17 +171,43 @@ private fun SosPanel(onSend: (SosDetails) -> Unit) {
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(onClick = { people-- }, enabled = people > 1) {
+                    Text(text = "-", style = MaterialTheme.typography.titleLarge)
+                }
+                Text(
+                    text = if (people == 1) "1 person" else "$people people",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(onClick = { people++ }, enabled = people < MAX_PEOPLE) {
+                    Text(text = "+", style = MaterialTheme.typography.titleLarge)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Toggle("Injured", injured, { injured = it }, Modifier.weight(1f))
+                Toggle("Trapped", trapped, { trapped = it }, Modifier.weight(1f))
+                Toggle("Medical", medical, { medical = it }, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Toggle("Water rising", water, { water = it }, Modifier.weight(1f))
+                Toggle("Fire", fire, { fire = it }, Modifier.weight(1f))
+            }
             Button(
                 onClick = {
                     onSend(
                         SosDetails(
-                            // 0 means "not given" (Contract 2); the screen no longer asks.
-                            people = 0,
-                            injured = false,
-                            trapped = false,
-                            water = false,
-                            medical = false,
-                            fire = false,
+                            people = people,
+                            injured = injured,
+                            trapped = trapped,
+                            water = water,
+                            medical = medical,
+                            fire = fire,
                         ),
                     )
                 },
@@ -168,9 +219,27 @@ private fun SosPanel(onSend: (SosDetails) -> Unit) {
             ) {
                 Text(text = "Send SOS", style = MaterialTheme.typography.headlineSmall)
             }
+            Text(
+                text = "Also sends your location and battery level.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
+
+@Composable
+private fun Toggle(label: String, on: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier) {
+    if (on) {
+        Button(onClick = { onChange(false) }, modifier = modifier) { Text(label) }
+    } else {
+        OutlinedButton(onClick = { onChange(true) }, modifier = modifier) { Text(label) }
+    }
+}
+
+// Contract 1 packs people into 4 bits, so 15 is the most a packet can carry.
+private const val MAX_PEOPLE = 15
 
 // The radar is always drawn north-up, so the compass is fixed rather than following the phone.
 @Composable

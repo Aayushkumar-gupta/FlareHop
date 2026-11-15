@@ -27,7 +27,7 @@ class RescueLoopTest {
 
     @Test
     fun rescuerHearsTheVictimsSos() {
-        val a = phone("A", Role.VICTIM, seed = 1)
+        val a = phone("A", Role.SURVIVOR, seed = 1)
         val c = phone("C", Role.RESCUER, seed = 3)
         a.setBattery(60)
         a.sendSos(details, fix = null)
@@ -41,7 +41,7 @@ class RescueLoopTest {
 
     @Test
     fun rescuerSeesTheSignalStrengthOfTheCarrier() {
-        val a = phone("A", Role.VICTIM, seed = 1)
+        val a = phone("A", Role.SURVIVOR, seed = 1)
         val c = phone("C", Role.RESCUER, seed = 3)
         radio.signal("A", "C", dbm = -75)
         a.sendSos(details, fix = null)
@@ -51,7 +51,7 @@ class RescueLoopTest {
 
     @Test
     fun victimLearnsARescuerReceivedTheSos() {
-        val a = phone("A", Role.VICTIM, seed = 1)
+        val a = phone("A", Role.SURVIVOR, seed = 1)
         phone("C", Role.RESCUER, seed = 3)
         a.sendSos(details, fix = null)
         radio.run(2_000)
@@ -60,8 +60,8 @@ class RescueLoopTest {
 
     @Test
     fun nearbyPhoneDoesNotSendAReceipt() {
-        val a = phone("A", Role.VICTIM, seed = 1)
-        phone("B", Role.NEARBY, seed = 2)
+        val a = phone("A", Role.SURVIVOR, seed = 1)
+        phone("B", Role.SURVIVOR, seed = 2)
         a.sendSos(details, fix = null)
         radio.run(2_000)
         assertFalse(a.mySos.value!!.record.acked)
@@ -69,7 +69,7 @@ class RescueLoopTest {
 
     @Test
     fun phoneOutOfRangeHearsNothing() {
-        val a = phone("A", Role.VICTIM, seed = 1)
+        val a = phone("A", Role.SURVIVOR, seed = 1)
         val c = phone("C", Role.RESCUER, seed = 3)
         radio.cutLink("A", "C")
         a.sendSos(details, fix = null)
@@ -80,7 +80,7 @@ class RescueLoopTest {
 
     @Test
     fun cancelReachesTheRescuer() {
-        val a = phone("A", Role.VICTIM, seed = 1)
+        val a = phone("A", Role.SURVIVOR, seed = 1)
         val c = phone("C", Role.RESCUER, seed = 3)
         a.sendSos(details, fix = null)
         radio.run(1_000)

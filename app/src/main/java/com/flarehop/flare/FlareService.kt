@@ -14,6 +14,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.flarehop.R
+import com.flarehop.sense.BatteryWatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,11 +24,13 @@ class FlareService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var advertiser: BleAdvertiser
     private lateinit var scanner: BleScanner
+    private lateinit var battery: BatteryWatcher
 
     override fun onCreate() {
         super.onCreate()
         advertiser = BleAdvertiser(this, Flare.engine)
         scanner = BleScanner(this, Flare.engine)
+        battery = Flare.battery(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -42,6 +45,7 @@ class FlareService : Service() {
             types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         }
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), types)
+        battery.start(scope)
         advertiser.start(scope)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) ==
             PackageManager.PERMISSION_GRANTED
@@ -62,6 +66,7 @@ class FlareService : Service() {
         ) {
             scanner.stop()
         }
+        battery.stop()
         scope.cancel()
         super.onDestroy()
     }

@@ -179,10 +179,16 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 itemsIndexed(active, key = { _, it -> it.messageId }) { index, record ->
-                    SosCard(record = record, rank = index + 1, now = now, here = here)
+                    SosCard(
+                        record = record,
+                        rank = index + 1,
+                        now = now,
+                        here = here,
+                        onFind = { flare.find(record.messageId) },
+                    )
                 }
                 itemsIndexed(cancelled, key = { _, it -> it.messageId }) { _, record ->
-                    SosCard(record = record, rank = null, now = now, here = here)
+                    SosCard(record = record, rank = null, now = now, here = here, onFind = null)
                 }
             }
         }
@@ -257,7 +263,13 @@ private fun EmptyDashboard() {
 }
 
 @Composable
-private fun SosCard(record: SosRecord, rank: Int?, now: Long, here: RescuerPosition?) {
+private fun SosCard(
+    record: SosRecord,
+    rank: Int?,
+    now: Long,
+    here: RescuerPosition?,
+    onFind: (() -> Unit)?,
+) {
     val band = band(record, now)
     val stripe = if (record.cancelled) MaterialTheme.colorScheme.outline else bandColor(band)
     Card(
@@ -290,6 +302,11 @@ private fun SosCard(record: SosRecord, rank: Int?, now: Long, here: RescuerPosit
                 InfoRow("Battery", record.battery?.let { "$it%" } ?: "Unknown")
                 InfoRow("Signal", signalText(record.lastRssi))
                 ReceiptLine(record)
+                if (onFind != null) {
+                    Button(onClick = onFind, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                        Text(text = "Find", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
             }
         }
     }

@@ -3,18 +3,18 @@ package com.flarehop.flare
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
-enum class Role { VICTIM, NEARBY, RESCUER }
+enum class Role { SURVIVOR, RESCUER }
 
-enum class SosStatus { SENDING, STANDING_BY, HANDED_OFF }
+enum class SosStatus { SENDING, HANDED_OFF }
 
 data class MySos(val record: SosRecord, val status: SosStatus)
 
 data class GroupMember(
     val phoneId: Int,
-    val isCarrier: Boolean,
     val battery: Int?,
     val rssi: Int?,
     val lastHeardAt: Long,
+    val carriedCount: Int,
 )
 
 data class DirectSignal(val messageId: Long, val carrierId: Int, val rssi: Int, val atMs: Long)
@@ -42,6 +42,7 @@ data class LogEvent(
 interface FlareEngine {
     val mySos: StateFlow<MySos?>
     val knownSos: StateFlow<List<SosRecord>>
+    val carried: StateFlow<List<SosRecord>>
     val group: StateFlow<List<GroupMember>>
     val directSignal: SharedFlow<DirectSignal>
     val log: SharedFlow<LogEvent>
