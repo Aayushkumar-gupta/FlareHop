@@ -37,7 +37,7 @@ The app has three tabs:
 |---|---|
 | **Victim** | One big **SOS** button, then **Cancel SOS**. After sending it shows "SOS sent", "A rescuer received your SOS" once a rescuer answers, or "SOS handed on" with the phone that now sends it. Below that, the phones that can carry the SOS ("Connected: 2 phones", or "A rescuer has your signal" when only a rescuer has answered), and any other SOS nearby. The SOS goes out without a people count or conditions, so the victim has nothing to fill in. Once sent, the tab shows "You are phone 1A2B" in large type, so the victim can tell a rescuer which SOS is theirs. |
 | **Nearby** | A graph of the network as this phone knows it, with a status line: "Looking for an SOS close by", "1 SOS close by", or "Carrying the SOS of phone 1A2B" when this phone took one over. This phone sits in the middle and every other phone has a fixed place around it in phone ID order, so nothing jumps with the signal. Grey arrows are phones this phone hears, with their signal; dashed orange arrows go from a victim to the phone carrying its SOS; green arrows go from a rescuer to the SOS it answered. Below the graph, every phone with its part, battery, signal and rough distance. |
-| **Rescuer** | **Set yourself as rescuer** (after a confirm), then every SOS this phone hears, ranked by urgency, each card headed by the victim's phone ID ("Phone 1A2B"), with the last sound the victim's phone detected, distance, how long since the last signal, battery and signal strength. **Track** opens Track for one SOS. **Stop being a rescuer** switches back. |
+| **Rescuer** | **Set yourself as rescuer** (after a confirm), then every SOS this phone hears, ranked by urgency, each card headed by the victim's phone ID ("Phone 1A2B"), with the last sound the victim's phone detected, distance, how long since the last signal, battery and signal strength. An SOS not heard for 2 minutes turns grey with **NOT HEARD** and moves below the live ones, still with its last details and Track. **Track** opens Track for one SOS. **Stop being a rescuer** switches back. |
 
 There is no Log or Demo tab: every rule shows in plain words on the three tabs, and in logcat for developers.
 
@@ -148,7 +148,7 @@ app/src/test/java/com/flarehop/
 ├── handoff/    FakeRadio (several engines on an in-memory radio), RescueLoopTest, HandoffRulesTest
 ├── sense/      BatteryWatcherTest, PriorityScoreTest, SignsOfLifeTest, SoundGateTest
 └── ui/         FindTrackerTest, LocationEstimatorTest, PhoneLabelTest, SosHistoryTest, AnglesTest,
-                MeshGraphTest
+                MeshGraphTest, DashboardRankingTest
 app/src/androidTest/java/com/flarehop/
 └── sense/      YamnetLoadTest (runs on a phone)
 ```
@@ -307,6 +307,7 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | `SosHistoryTest` | Track's carriers and history: the first packet, a new carrier and the victim sending again, sounds heard again, a GPS fix and real moves only, battery in 10% steps, cancel, and keeping the newest 100 entries |
 | `AnglesTest` | The arrow's angle math: wrapping, turning the short way across north, compass smoothing, and animating without spinning the long way round |
 | `MeshGraphTest` | The Nearby graph: phones heard with their signal, a victim heard directly or through its carrier, a carrier in the group drawn once as the carrier, silent and cancelled SOS left out, rescuers' receipts, SOS this phone carries or handed on, and fixed places in phone ID order |
+| `DashboardRankingTest` | The Rescuer list: live SOS ranked first, SOS not heard for 2 minutes below them most recent first, cancelled ones last, and only the newest SOS per victim |
 | `LocationEstimatorTest` | Distance from Bluetooth signal, GPS error from both phones' accuracy, old or rough fixes ignored, combining GPS and Bluetooth, and when the direction is unknown |
 | `PhoneLabelTest` | Phone IDs shown as four hex digits, keeping leading zeros, so the victim's screen and the rescuer's card match |
 
