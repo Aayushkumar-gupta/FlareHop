@@ -37,7 +37,7 @@ class RealFlareEngineTest {
                 originId = 500,
                 carrierId = carrierId,
                 sound = SoundType.NONE,
-                soundAgeMin = null,
+                soundAgeSec = null,
                 latitude = 11.0,
                 longitude = 75.0,
                 accuracyM = 10,
@@ -122,7 +122,7 @@ class RealFlareEngineTest {
         now += 2 * 60_000L
         val packet = next() as SosPacket
         assertEquals(SoundType.KNOCK, packet.sound)
-        assertEquals(2, packet.soundAgeMin)
+        assertEquals(120, packet.soundAgeSec)
     }
 
     @Test
@@ -275,5 +275,13 @@ class RealFlareEngineTest {
         assertNull(engine.mySos.value)
         assertTrue(engine.knownSos.value.isEmpty())
         assertNull(engine.nextPacket())
+    }
+
+    @Test
+    fun soundAgeIsSentInSeconds() {
+        engine.sendSos(details, fix)
+        engine.setSound(SoundType.KNOCK, now)
+        now += 37_000L
+        assertEquals(37, (next() as SosPacket).soundAgeSec)
     }
 }

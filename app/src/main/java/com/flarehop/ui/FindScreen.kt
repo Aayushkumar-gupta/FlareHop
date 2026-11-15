@@ -145,6 +145,7 @@ class FindTracker {
 fun FindScreen(flare: FlareViewModel, messageId: Long, modifier: Modifier = Modifier) {
     val known by flare.engine.knownSos.collectAsState()
     val tracks by flare.tracks.collectAsState()
+    val names by flare.names.collectAsState()
     val gps by flare.locationReader.location.collectAsState()
     val record = known.firstOrNull { it.messageId == messageId }
     val track = tracks[messageId]
@@ -182,8 +183,8 @@ fun FindScreen(flare: FlareViewModel, messageId: Long, modifier: Modifier = Modi
             if (record != null) {
                 item {
                     Text(
-                        text = "Phone ${phoneLabel(record.originId)}" +
-                            if (handedOff) ", via ${phoneLabel(record.carrierId)}" else "",
+                        text = names.survivorWithCode(record.originId) +
+                            if (handedOff) ", via ${names.phoneWithCode(record.carrierId)}" else "",
                         style = MaterialTheme.typography.headlineSmall,
                     )
                 }
@@ -216,7 +217,7 @@ fun FindScreen(flare: FlareViewModel, messageId: Long, modifier: Modifier = Modi
             }
             track?.carriers?.takeIf { it.isNotEmpty() }?.let { carriers ->
                 item { SectionTitle("Phones that carried it") }
-                items(carriers.sortedByDescending { it.isVictim }) { CarrierRow(it, now) }
+                items(carriers.sortedByDescending { it.isVictim }) { CarrierRow(it, names, now) }
             }
             track?.history?.takeIf { it.isNotEmpty() }?.let { history ->
                 item { SectionTitle("Latest") }
@@ -328,16 +329,15 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun CarrierRow(carrier: CarrierSeen, now: Long) {
+private fun CarrierRow(carrier: CarrierSeen, names: PhoneNames, now: Long) {
     val role = if (carrier.isVictim) "victim" else "carrier"
     val battery = carrier.battery?.let { ", $it%" } ?: ""
     val connected = HISTORY_TIME.format(Instant.ofEpochMilli(carrier.connectedAt))
     val agoSec = ((now - carrier.lastHeardAt) / 1_000).coerceAtLeast(0)
     val ago = if (agoSec < 60) "${agoSec}s ago" else "${agoSec / 60} min ago"
+    val name = names.phoneWithCode(carrier.phoneId)
     Text(
-        text = "${phoneLabel(
-            carrier.phoneId,
-        )}  $role$battery, connected $connected, last heard $ago",
+        text = "$name, $role$battery, connected $connected, last heard $ago",
         style = MaterialTheme.typography.bodyLarge,
         modifier = Modifier.fillMaxWidth(),
     )

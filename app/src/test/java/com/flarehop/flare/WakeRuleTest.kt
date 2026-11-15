@@ -13,7 +13,7 @@ class WakeRuleTest {
             originId = 0x10A1,
             carrierId = 0x10A1,
             sound = SoundType.NONE,
-            soundAgeMin = null,
+            soundAgeSec = null,
             latitude = null,
             longitude = null,
             accuracyM = null,

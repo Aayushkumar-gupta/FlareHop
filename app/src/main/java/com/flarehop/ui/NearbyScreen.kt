@@ -40,6 +40,7 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
     val carried by engine.carried.collectAsState()
     val group by engine.group.collectAsState()
     val receipts by flare.receiptsBy.collectAsState()
+    val names by flare.names.collectAsState()
     val now = rememberNow()
 
     val myId = mySos?.record?.originId ?: engine.phoneId
@@ -60,7 +61,7 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
 
         carried.isNotEmpty() ->
             "Carrying the SOS of " +
-                carried.joinToString { "phone ${phoneLabel(it.originId)}" }
+                carried.joinToString { names.survivorWithCode(it.originId) }
 
         mySos?.status == SosStatus.SENDING -> "Sending your own SOS"
 
@@ -100,7 +101,7 @@ fun NearbyScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
             item {
                 Text(text = "Phones", style = MaterialTheme.typography.titleLarge)
             }
-            items(graph.others, key = { it.phoneId }) { node -> PhoneRow(node, known) }
+            items(graph.others, key = { it.phoneId }) { node -> PhoneRow(node, names, known) }
         }
     }
 }
@@ -141,7 +142,7 @@ private fun LegendItem(color: Color, dashed: Boolean, text: String) {
 }
 
 @Composable
-private fun PhoneRow(node: GraphNode, known: List<SosRecord>) {
+private fun PhoneRow(node: GraphNode, names: PhoneNames, known: List<SosRecord>) {
     val part = when (node.kind) {
         NodeKind.RESCUER -> "rescuer"
 
@@ -150,7 +151,7 @@ private fun PhoneRow(node: GraphNode, known: List<SosRecord>) {
         NodeKind.CARRIER ->
             "carries " + known
                 .filter { it.carrierId == node.phoneId && it.originId != node.phoneId }
-                .joinToString { phoneLabel(it.originId) }
+                .joinToString { names.survivorWithCode(it.originId) }
                 .ifEmpty { "an SOS" }
 
         else -> "phone"
@@ -161,7 +162,7 @@ private fun PhoneRow(node: GraphNode, known: List<SosRecord>) {
         node.rssi?.let { "about ${distanceText(LocationEstimator.bluetooth(it).distanceM)}" },
     )
     Text(
-        text = "${phoneLabel(node.phoneId)}  ${details.joinToString(", ")}",
+        text = "${names.phoneWithCode(node.phoneId)}, ${details.joinToString(", ")}",
         style = MaterialTheme.typography.bodyLarge,
         modifier = Modifier.fillMaxWidth(),
     )

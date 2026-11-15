@@ -1,5 +1,7 @@
 package com.flarehop.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -35,15 +37,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.flarehop.flare.FlareConstants
 import com.flarehop.flare.SosDetails
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SosStatus
+import com.flarehop.sense.HeardSound
+import com.flarehop.sense.SignsOfLife
 import com.flarehop.ui.theme.Bronze
 import com.flarehop.ui.theme.BronzeDeep
 import com.flarehop.ui.theme.BronzeDim
@@ -202,6 +208,9 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
     val mySos by engine.mySos.collectAsState()
     val group by engine.group.collectAsState()
     val known by engine.knownSos.collectAsState()
+    val names by flare.names.collectAsState()
+    val listening by flare.listening.collectAsState()
+    val heard by flare.heardSound.collectAsState()
     val now = rememberNow()
 
     val mine = mySos ?: return
@@ -217,7 +226,9 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
         .filter { !it.cancelled && it.originId != record.originId }
         .groupBy { it.originId }
         .map { (_, copies) -> copies.maxBy { it.firstHeardAt } }
-        .sortedByDescending { it.lastHeardAt }
+        // Survivor 1, 2, 3 in the order first heard. Sorting by last heard would reshuffle the
+        // cards with every packet.
+        .sortedBy { names.survivorNumber(it.originId) ?: Int.MAX_VALUE }
 
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
@@ -265,10 +276,15 @@ private fun MeshView(flare: FlareViewModel, modifier: Modifier) {
         if (mine.status == SosStatus.HANDED_OFF) {
             item {
                 Text(
-                    text = "Phone ${phoneLabel(record.carrierId)} keeps sending your SOS.",
+                    text = "${names.phoneWithCode(record.carrierId)} keeps sending your SOS.",
                     style = MaterialTheme.typography.titleMedium,
                     textAlign = TextAlign.Center,
                 )
+            }
+        }
+        if (mine.status == SosStatus.SENDING) {
+            item {
+                HeardHere(listening = listening, heard = heard, battery = record.battery, now = now)
             }
         }
         item { LowBatteryLine(mine.status, record.battery, phonesNearby = group.size) }
@@ -307,6 +323,42 @@ private fun MeshStatus(state: MeshState, phones: Int, rescuerHeard: Boolean) {
         color = Mist,
         textAlign = TextAlign.Center,
     )
+}
+
+@Composable
+private fun HeardHere(listening: Boolean, heard: HeardSound?, battery: Int?, now: Long) {
+    val context = LocalContext.current
+    val micAllowed = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+        PackageManager.PERMISSION_GRANTED
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = heard?.let {
+                "Heard here: ${soundLabel(it.type)}, ${secondsAgoText((now - it.atMs) / 1_000L)}"
+            } ?: "No sound heard yet",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = micText(allowed = micAllowed, listening = listening, battery = battery),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+// The listener only reports itself on once the sound model has loaded, about a second after the
+// SOS, so "not listening" alone does not mean the permission is missing.
+private fun micText(allowed: Boolean, listening: Boolean, battery: Int?): String = when {
+    !allowed -> "Microphone not allowed. Allow it in Settings so rescuers hear your knocks."
+
+    battery != null && battery < SignsOfLife.STOP_BELOW_PERCENT ->
+        "Microphone off below ${SignsOfLife.STOP_BELOW_PERCENT}% battery, to keep your SOS going."
+
+    !listening -> "Starting the microphone..."
+
+    else -> "Listening for knocks and voices. Rescuers see what this phone hears."
 }
 
 @Composable

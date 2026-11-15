@@ -38,7 +38,16 @@ class SignsOfLifeTest {
     }
 
     @Test
-    fun listensForTheFirstFiveSecondsOfEveryFifteen() {
+    fun listensAllTheTimeFromThirtyPercent() {
+        battery = 30
+        assertTrue(signs.shouldListen(0))
+        assertTrue(signs.shouldListen(5_000))
+        assertTrue(signs.shouldListen(14_999))
+    }
+
+    @Test
+    fun belowThirtyPercentListensForTheFirstFiveSecondsOfEveryFifteen() {
+        battery = 29
         assertTrue(signs.shouldListen(0))
         assertTrue(signs.shouldListen(4_999))
         assertFalse(signs.shouldListen(5_000))
@@ -47,7 +56,8 @@ class SignsOfLifeTest {
     }
 
     @Test
-    fun demoSwitchListensAllTheTime() {
+    fun demoSwitchListensAllTheTimeOnLowBattery() {
+        battery = 20
         signs.listenContinuously = true
         assertTrue(signs.shouldListen(10_000))
     }
@@ -65,6 +75,7 @@ class SignsOfLifeTest {
     fun unknownBatteryKeepsListening() {
         battery = null
         assertTrue(signs.shouldListen(0))
+        assertTrue(signs.shouldListen(10_000))
     }
 
     @Test
@@ -90,5 +101,32 @@ class SignsOfLifeTest {
     fun fakeKnockSetsKnock() {
         signs.fakeKnock(now)
         assertEquals(SoundType.KNOCK, carriedSound())
+    }
+
+    @Test
+    fun heardSoundIsKeptWithItsExactTimeForTheVictimScreen() {
+        signs.onWindow(listOf(Heard("Crying, sobbing", 0.7f)), loud, now + 4_321)
+        assertEquals(HeardSound(SoundType.CRYING, now + 4_321), signs.lastHeard.value)
+    }
+
+    @Test
+    fun crowdNoiseShowsWhileNoSignOfLifeWasHeard() {
+        signs.onWindow(listOf(Heard("Crowd", 0.8f)), loud, now)
+        assertEquals(SoundType.CROWD, carriedSound())
+    }
+
+    @Test
+    fun crowdNoiseNeverReplacesAKnockOnTheSos() {
+        signs.onWindow(listOf(Heard("Knock", 0.8f)), loud, now)
+        signs.onWindow(listOf(Heard("Crowd", 0.9f)), loud, now + 1_000)
+        assertEquals(SoundType.KNOCK, carriedSound())
+        assertEquals(HeardSound(SoundType.CROWD, now + 1_000), signs.lastHeard.value)
+    }
+
+    @Test
+    fun windowThatPassesNothingKeepsTheLastHeardSound() {
+        signs.onWindow(listOf(Heard("Knock", 0.8f)), loud, now)
+        signs.onWindow(listOf(Heard("Speech", 0.9f)), quiet, now + 1_000)
+        assertEquals(HeardSound(SoundType.KNOCK, now), signs.lastHeard.value)
     }
 }

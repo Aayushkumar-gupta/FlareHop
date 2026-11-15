@@ -114,7 +114,7 @@ class RealFlareEngine(
                 fire = details.fire,
                 battery = battery,
                 sound = sound,
-                soundAgeMin = soundAgeMin(now),
+                soundAgeSec = soundAgeSec(now),
                 firstHeardAt = now,
                 lastHeardAt = now,
                 lastRssi = null,
@@ -175,7 +175,7 @@ class RealFlareEngine(
         synchronized(lock) {
             sound = type
             soundAtMs = atMs
-            updateMyRecord { it.copy(sound = type, soundAgeMin = soundAgeMin(clock())) }
+            updateMyRecord { it.copy(sound = type, soundAgeSec = soundAgeSec(clock())) }
         }
     }
 
@@ -253,7 +253,7 @@ class RealFlareEngine(
             fire = packet.details.fire,
             battery = packet.battery,
             sound = packet.sound,
-            soundAgeMin = packet.soundAgeMin,
+            soundAgeSec = packet.soundAgeSec,
             firstHeardAt = existing?.firstHeardAt ?: atMs,
             lastHeardAt = atMs,
             lastRssi = rssi,
@@ -481,7 +481,7 @@ class RealFlareEngine(
         originId = record.originId,
         carrierId = phoneId,
         sound = sound,
-        soundAgeMin = soundAgeMin(now),
+        soundAgeSec = soundAgeSec(now),
         latitude = record.latitude,
         longitude = record.longitude,
         accuracyM = record.accuracyM,
@@ -504,7 +504,7 @@ class RealFlareEngine(
             originId = record.originId,
             carrierId = phoneId,
             sound = record.sound,
-            soundAgeMin = record.soundAgeMin?.plus(minutes),
+            soundAgeSec = record.soundAgeSec?.plus(secondsBetween(record.lastHeardAt, now)),
             latitude = record.latitude,
             longitude = record.longitude,
             accuracyM = record.accuracyM,
@@ -544,8 +544,11 @@ class RealFlareEngine(
         events.tryEmit(LogEvent(type, messageId, phoneId, atMs, reason))
     }
 
-    private fun soundAgeMin(now: Long): Int? =
-        if (sound == SoundType.NONE) null else minutesBetween(soundAtMs, now)
+    private fun soundAgeSec(now: Long): Int? =
+        if (sound == SoundType.NONE) null else secondsBetween(soundAtMs, now)
+
+    private fun secondsBetween(fromMs: Long, toMs: Long): Int =
+        ((toMs - fromMs).coerceAtLeast(0L) / 1_000L).toInt()
 
     private fun minutesBetween(fromMs: Long, toMs: Long): Int =
         ((toMs - fromMs).coerceAtLeast(0L) / 60_000L).toInt()

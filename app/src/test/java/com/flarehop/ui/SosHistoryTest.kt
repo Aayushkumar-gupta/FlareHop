@@ -14,7 +14,7 @@ class SosHistoryTest {
         battery: Int? = 40,
         rssi: Int? = -60,
         sound: SoundType = SoundType.NONE,
-        soundAgeMin: Int? = null,
+        soundAgeSec: Int? = null,
         latitude: Double? = null,
         longitude: Double? = null,
         accuracyM: Int? = null,
@@ -36,7 +36,7 @@ class SosHistoryTest {
         fire = false,
         battery = battery,
         sound = sound,
-        soundAgeMin = soundAgeMin,
+        soundAgeSec = soundAgeSec,
         firstHeardAt = 1_000L,
         lastHeardAt = heardAt,
         lastRssi = rssi,
@@ -113,9 +113,9 @@ class SosHistoryTest {
     fun aSoundIsLoggedWhenItIsNewOrHeardAgain() {
         val log = texts(
             record(),
-            record(sound = SoundType.KNOCK, soundAgeMin = 0, heardAt = 2_000L),
-            record(sound = SoundType.KNOCK, soundAgeMin = 1, heardAt = 62_000L),
-            record(sound = SoundType.KNOCK, soundAgeMin = 0, heardAt = 63_000L),
+            record(sound = SoundType.KNOCK, soundAgeSec = 0, heardAt = 2_000L),
+            record(sound = SoundType.KNOCK, soundAgeSec = 60, heardAt = 62_000L),
+            record(sound = SoundType.KNOCK, soundAgeSec = 0, heardAt = 63_000L),
         )
         assertEquals(listOf("Knocking heard", "Knocking heard"), log.drop(1))
     }
@@ -156,5 +156,16 @@ class SosHistoryTest {
             record(carrierId = if (it % 2 == 0) 0x1A2B else 0x3C4D, heardAt = 1_000L + it)
         }
         assertEquals(SosHistory.MAX_ENTRIES, texts(*steps.toTypedArray()).size)
+    }
+
+    @Test
+    fun steadyKnockingIsLoggedOnceNotEverySecond() {
+        val log = texts(
+            record(),
+            record(sound = SoundType.KNOCK, soundAgeSec = 0, heardAt = 2_000L),
+            record(sound = SoundType.KNOCK, soundAgeSec = 5, heardAt = 7_000L),
+            record(sound = SoundType.KNOCK, soundAgeSec = 0, heardAt = 8_000L),
+        )
+        assertEquals(listOf("Knocking heard"), log.drop(1))
     }
 }

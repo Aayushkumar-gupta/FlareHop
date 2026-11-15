@@ -85,14 +85,15 @@ class LocationReader(private val context: Context, scope: CoroutineScope) {
         if (current == null || isBetter(next, current)) _location.value = next
     }
 
-    // A much newer fix always wins, because the old one may be from before the phone moved.
-    // Close in time, the more accurate one wins, so a rough network fix cannot replace GPS.
+    // Every newer fix wins so the radar keeps moving, unless it is much rougher than the one held:
+    // a network fix arriving between GPS readings must not pull the position away. After
+    // STALE_MS even a rough fix wins, because the old one may be from before the phone moved.
     private fun isBetter(next: Location, current: Location): Boolean {
         val newerBy = next.time - current.time
         return when {
+            newerBy <= 0 -> false
             newerBy > STALE_MS -> true
-            newerBy < -STALE_MS -> false
-            else -> next.accuracy <= current.accuracy
+            else -> next.accuracy <= maxOf(current.accuracy * ROUGHER_FACTOR, ROUGH_SLACK_M)
         }
     }
 
@@ -114,7 +115,9 @@ fun Location.toGpsFix(): GpsFix = GpsFix(
     ageMin = ((System.currentTimeMillis() - time) / MS_PER_MIN).toInt().coerceAtLeast(0),
 )
 
-private const val UPDATE_MS = 5_000L
-private const val STALE_MS = 120_000L
+private const val UPDATE_MS = 1_000L
+private const val STALE_MS = 10_000L
+private const val ROUGHER_FACTOR = 2f
+private const val ROUGH_SLACK_M = 20f
 private const val PERMISSION_CHECK_MS = 2_000L
 private const val MS_PER_MIN = 60_000L

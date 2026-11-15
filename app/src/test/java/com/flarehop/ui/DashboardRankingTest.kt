@@ -32,7 +32,7 @@ class DashboardRankingTest {
         fire = false,
         battery = 50,
         sound = SoundType.NONE,
-        soundAgeMin = null,
+        soundAgeSec = null,
         firstHeardAt = firstHeardAt,
         lastHeardAt = heardAt,
         lastRssi = -60,

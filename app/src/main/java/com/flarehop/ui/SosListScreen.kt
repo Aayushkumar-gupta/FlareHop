@@ -157,6 +157,7 @@ fun rememberNow(): Long {
 private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
     val records by flare.engine.knownSos.collectAsState()
     val gps by flare.locationReader.location.collectAsState()
+    val names by flare.names.collectAsState()
     val now = rememberNow()
 
     val here = gps?.let { Position(it.latitude, it.longitude) }
@@ -173,9 +174,10 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                itemsIndexed(active, key = { _, it -> it.messageId }) { index, record ->
+                itemsIndexed(active, key = { _, it -> it.originId }) { index, record ->
                     SosCard(
                         record = record,
+                        names = names,
                         rank = index + 1,
                         now = now,
                         here = here,
@@ -183,17 +185,25 @@ private fun RescuerDashboard(flare: FlareViewModel, modifier: Modifier) {
                     )
                 }
                 // Still trackable: the last position and carrier may lead to the victim.
-                itemsIndexed(stale, key = { _, it -> it.messageId }) { _, record ->
+                itemsIndexed(stale, key = { _, it -> it.originId }) { _, record ->
                     SosCard(
                         record = record,
+                        names = names,
                         rank = null,
                         now = now,
                         here = here,
                         onFind = { flare.find(record.messageId) },
                     )
                 }
-                itemsIndexed(cancelled, key = { _, it -> it.messageId }) { _, record ->
-                    SosCard(record = record, rank = null, now = now, here = here, onFind = null)
+                itemsIndexed(cancelled, key = { _, it -> it.originId }) { _, record ->
+                    SosCard(
+                        record = record,
+                        names = names,
+                        rank = null,
+                        now = now,
+                        here = here,
+                        onFind = null,
+                    )
                 }
             }
         }
@@ -270,6 +280,7 @@ private fun EmptyDashboard() {
 @Composable
 private fun SosCard(
     record: SosRecord,
+    names: PhoneNames,
     rank: Int?,
     now: Long,
     here: Position?,
@@ -296,12 +307,12 @@ private fun SosCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 CardTop(record = record, band = band, rank = rank, stale = isStale(record, now))
-                // The victim's own screen shows the same ID, so a card can be matched to a person.
-                // After a handoff, "via" names the phone the signal now comes from.
+                // Name and code; the victim's own screen shows the same code, so a card can be
+                // matched to a person. After a handoff, "via" names the phone the signal comes from.
                 Text(
-                    text = "Phone ${phoneLabel(record.originId)}" +
+                    text = names.survivorWithCode(record.originId) +
                         if (record.carrierId != record.originId) {
-                            ", via ${phoneLabel(record.carrierId)}"
+                            ", via ${names.phoneWithCode(record.carrierId)}"
                         } else {
                             ""
                         },
@@ -309,7 +320,7 @@ private fun SosCard(
                     fontWeight = FontWeight.Bold,
                 )
                 HorizontalDivider()
-                InfoRow("Sound", soundText(record))
+                InfoRow("Sound", soundText(record, now))
                 InfoRow("Location", locationText(record, here))
                 InfoRow("Last signal", lastSignalText(record, now))
                 InfoRow("Battery", record.battery?.let { "$it%" } ?: "Unknown")
@@ -392,20 +403,31 @@ private fun bandColor(band: PriorityBand): Color = when (band) {
     PriorityBand.NORMAL -> MaterialTheme.colorScheme.secondary
 }
 
-fun soundText(record: SosRecord): String {
-    val label = when (record.sound) {
-        SoundType.NONE -> return "No sound detected yet"
-        SoundType.SPEECH -> "Speech"
-        SoundType.SHOUT -> "Shouting"
-        SoundType.KNOCK -> "Knocking"
-        SoundType.CRYING -> "Crying"
-    }
-    val age = record.soundAgeMin
-    return when {
-        age == null -> label
-        age == 0 -> "$label, just now"
-        else -> "$label, $age min ago"
-    }
+fun soundLabel(type: SoundType): String = when (type) {
+    SoundType.NONE -> "No sound detected yet"
+    SoundType.SPEECH -> "Speech"
+    SoundType.SHOUT -> "Shouting"
+    SoundType.KNOCK -> "Knocking"
+    SoundType.CRYING -> "Crying"
+    SoundType.CROWD -> "Crowd noise"
+}
+
+// The age was measured when the newest copy arrived, so it keeps counting between packets and the
+// card shows when the victim's phone really heard the sound.
+fun soundText(record: SosRecord, now: Long): String {
+    val label = soundLabel(record.sound)
+    if (record.sound == SoundType.NONE) return label
+    val age = record.soundAgeSec ?: return label
+    val seconds = age + ((now - record.lastHeardAt) / 1_000L).coerceAtLeast(0L)
+    return "$label, ${secondsAgoText(seconds)}"
+}
+
+// Exact seconds, unlike agoText: the victim's phone measured the sound's age itself, so it does
+// not flicker with every copy that arrives.
+fun secondsAgoText(seconds: Long): String = when {
+    seconds < JUST_NOW_SEC -> "just now"
+    seconds < 60 -> "$seconds s ago"
+    else -> "${seconds / 60} min ago"
 }
 
 fun locationText(record: SosRecord, here: Position?): String {
@@ -423,7 +445,7 @@ fun locationText(record: SosRecord, here: Position?): String {
     return "$coordinates\n${distanceText(meters)} ${compassPoint(bearing)}$age"
 }
 
-private fun compassPoint(bearing: Double): String {
+fun compassPoint(bearing: Double): String {
     val points = listOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
     return points[((bearing / 45.0).roundToInt()) % points.size]
 }
@@ -432,12 +454,18 @@ private fun compassPoint(bearing: Double): String {
 // has no timestamp field (Contract 1), so the first time shown is when this phone first heard it.
 private fun lastSignalText(record: SosRecord, now: Long): String {
     val first = HEARD_AT.format(Instant.ofEpochMilli(record.firstHeardAt))
-    val agoSec = ((now - record.lastHeardAt) / 1_000).coerceAtLeast(0)
-    val last = when {
-        agoSec < 60 -> "${agoSec}s ago"
-        else -> "${agoSec / 60} min ago"
+    return "${agoText(now - record.lastHeardAt)}, first heard $first"
+}
+
+// Copies arrive several times a second, so a per-second count would flicker between 0 and 1.
+// Ten-second steps still show at a glance whether the phone is in range.
+fun agoText(elapsedMs: Long): String {
+    val sec = (elapsedMs / 1_000).coerceAtLeast(0)
+    return when {
+        sec < 10 -> "just now"
+        sec < 60 -> "${sec / 10 * 10}s ago"
+        else -> "${sec / 60} min ago"
     }
-    return "$last, first heard $first"
 }
 
 data class DashboardRanking(
@@ -477,6 +505,7 @@ private val HIGH_ORANGE = Color(0xFFE65100)
 private val LISTENING_GREEN = Color(0xFF2E7D32)
 
 private const val CLOCK_TICK_MS = 1_000L
+private const val JUST_NOW_SEC = 5
 private const val PULSE_MS = 900
 private const val DIMMED_ALPHA = 0.55f
 private const val INFO_LABEL_WIDTH = 72
