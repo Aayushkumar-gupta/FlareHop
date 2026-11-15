@@ -110,7 +110,8 @@ private fun distanceLabel(blip: RadarBlip): String {
     }
 }
 
-// Same scale as Find mode (Contract 6): -90 dBm or weaker is the edge, -40 dBm or stronger the center.
+// Same scale as Find mode (Contract 6): -90 dBm or weaker is the edge,
+// -40 dBm or stronger the center.
 private fun signalFraction(rssi: Int) = ((rssi + 90) / 50f).coerceIn(0f, 1f)
 
 // Bluetooth signal strength gives distance only, never direction, so each phone gets a fixed

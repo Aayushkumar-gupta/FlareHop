@@ -21,29 +21,29 @@ const val DEVELOPMENT = false
 
 @Composable
 fun MainScreen(flare: FlareViewModel) {
-    val role by flare.role.collectAsState()
+    val tab by flare.tab.collectAsState()
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
             NavigationBar {
-                RoleTab(label = "Victim", selected = role == Role.VICTIM) {
-                    flare.selectRole(Role.VICTIM)
+                RoleTab(label = "Victim", selected = tab == Role.VICTIM) {
+                    flare.openTab(Role.VICTIM)
                 }
-                RoleTab(label = "Nearby", selected = role == Role.NEARBY) {
-                    flare.selectRole(Role.NEARBY)
+                RoleTab(label = "Nearby", selected = tab == Role.NEARBY) {
+                    flare.openTab(Role.NEARBY)
                 }
-                RoleTab(label = "Rescuer", selected = role == Role.RESCUER) {
-                    flare.selectRole(Role.RESCUER)
+                RoleTab(label = "Rescuer", selected = tab == Role.RESCUER) {
+                    flare.openTab(Role.RESCUER)
                 }
             }
         },
     ) { innerPadding ->
         val modifier = Modifier.padding(innerPadding)
-        when (role) {
-            Role.RESCUER -> SosListScreen(engine = flare.engine, modifier = modifier)
+        when (tab) {
+            Role.RESCUER -> SosListScreen(flare = flare, modifier = modifier)
             Role.NEARBY -> NearbyScreen(engine = flare.engine, modifier = modifier)
-            Role.VICTIM -> VictimScreen(engine = flare.engine, modifier = modifier)
+            Role.VICTIM -> VictimScreen(flare = flare, modifier = modifier)
         }
     }
 }
