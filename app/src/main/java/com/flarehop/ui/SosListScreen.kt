@@ -36,11 +36,11 @@ import com.flarehop.flare.Role
 import com.flarehop.flare.SosRecord
 import com.flarehop.flare.SoundType
 import com.flarehop.sense.PriorityScore
-import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 private enum class RadioState { READY, NO_PERMISSION, BLUETOOTH_OFF }
 

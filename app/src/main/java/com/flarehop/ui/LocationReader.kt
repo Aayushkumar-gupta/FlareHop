@@ -10,13 +10,13 @@ import android.location.LocationManager
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.flarehop.flare.Fix
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 class LocationReader(private val context: Context, scope: CoroutineScope) {
     private val manager = context.getSystemService(LocationManager::class.java)
