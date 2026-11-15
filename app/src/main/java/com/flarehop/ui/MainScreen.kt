@@ -2,22 +2,17 @@ package com.flarehop.ui
 
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import com.flarehop.flare.Role
 
 // true  = development: screens run on FakeEngine sample data, Bluetooth stays off.
@@ -30,7 +25,6 @@ fun MainScreen(flare: FlareViewModel) {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        topBar = { ModeBanner() },
         bottomBar = {
             NavigationBar {
                 RoleTab(label = "Victim", selected = role == Role.VICTIM) {
@@ -51,31 +45,6 @@ fun MainScreen(flare: FlareViewModel) {
             Role.NEARBY -> NearbyScreen(engine = flare.engine, modifier = modifier)
             Role.VICTIM -> VictimScreen(engine = flare.engine, modifier = modifier)
         }
-    }
-}
-
-@Composable
-private fun ModeBanner() {
-    val colors = MaterialTheme.colorScheme
-    Surface(
-        color = if (DEVELOPMENT) colors.tertiaryContainer else colors.primaryContainer,
-        contentColor = if (DEVELOPMENT) colors.onTertiaryContainer else colors.onPrimaryContainer,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(
-            text = if (DEVELOPMENT) {
-                "DEVELOPMENT = true · sample data (FakeEngine)"
-            } else {
-                "DEVELOPMENT = false · real Bluetooth"
-            },
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(vertical = 6.dp),
-        )
     }
 }
 
