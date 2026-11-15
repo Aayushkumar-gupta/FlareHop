@@ -10,6 +10,10 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 
 > Hackathon project, built in a 24-hour event by a team of three.
 
+## Download
+
+Get the APK from the [latest release](https://github.com/Aayushkumar-gupta/FlareHop/releases/latest) and install it on two or more Android phones with Android 12 or newer and a 64-bit ARM processor (every recent phone). The first time, Android asks you to allow installs from your browser or file manager. Then follow [Trying it on phones](#trying-it-on-phones). Every phone needs the same version, because older builds ignore the newer packets.
+
 ## Status
 
 | Part | What it does | State |
