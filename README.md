@@ -25,7 +25,7 @@ Phones never connect to each other. Every phone only broadcasts and listens, the
 | Screens | Role picker, SOS screen, rescuer dashboard, Find mode | Planned |
 | Signs of life | On-device sound detection with YAMNet | Planned |
 
-On a phone the app opens a temporary radio test screen: pick a role, send a test SOS, cancel it, stop the beacon, and see every SOS the phone hears. The real screens replace it later. Two Flarehop phones now hear each other: a rescuer phone sends a receipt, and the victim phone shows it as acked.
+The app has two tabs: **Survivor** (send or cancel an SOS, and see the phones around you) and **Rescuer** (every SOS this phone hears, ranked by urgency). Two Flarehop phones hear each other: a rescuer phone sends a receipt, and the survivor phone shows "A rescuer received your SOS". The design is moving to a mesh, where every phone keeps a copy of every SOS; the engine has the new interface for it, and the rules come next.
 
 ## How it works
 
@@ -135,8 +135,8 @@ The beacon runs as a foreground service, so it keeps broadcasting and listening 
 You need two phones with Android 12 or newer, Bluetooth on and Location on.
 
 1. Install it on each phone: `./gradlew installDebug` with the phones connected over USB, or **Run** in Android Studio.
-2. Phone A: open Flarehop, tap **VICTIM**, allow every permission, then tap **Send test SOS**.
-3. Phone C: open Flarehop, tap **RESCUER** and allow every permission.
+2. Phone A: open Flarehop, allow every permission (Location: **Precise**), open the **Survivor** tab and tap **Send SOS**.
+3. Phone C: open Flarehop, allow every permission, open the **Rescuer** tab and tap **Set yourself as rescuer**.
 4. Within a few seconds phone C lists the SOS ("SOS heard: 1") with its signal strength, and phone A shows `acked true`.
 5. Tap **Cancel SOS** on phone A. Phone C shows the SOS as `cancelled true`.
 
@@ -176,8 +176,8 @@ In Android Studio you can also right-click a test file, such as `PacketCodecTest
 | `AdvertPlannerTest` | When the advertiser starts, updates, skips an unchanged packet, pauses and resumes |
 | `PacketCodecTest` | Round trips for all four packet types, exact byte layout, no-fix value, caps at 254, unknown values as 255, and the drop rules |
 | `RealFlareEngineTest` | Sending an SOS, records for heard SOS, signal readings, dropped packets, receipts and the 15-second receipt window, acknowledgements, cancel, packet rotation and reset. Uses a fake clock, so no waiting |
-| `RescueLoopTest` | Victim, nearby and rescuer engines on a fake radio: the rescuer hears the SOS with its signal strength, the victim gets the receipt, out-of-range phones hear nothing, cancel reaches the rescuer |
-| `HandoffRulesTest` | Every handoff rule from Contract 3. Skipped (`@Ignore`) until the handoff rules are built |
+| `RescueLoopTest` | Survivor and rescuer engines on a fake radio: the rescuer hears the SOS with its signal strength, the victim gets the receipt, out-of-range phones hear nothing, cancel reaches the rescuer |
+| `HandoffRulesTest` | Placeholder, skipped (`@Ignore`): being rewritten for the mesh rules in Contract 3 |
 | `PriorityScoreTest` | The four score checks from Contract 5, the 10-minute sound window, and ties going to the SOS heard first |
 
 To build the app:

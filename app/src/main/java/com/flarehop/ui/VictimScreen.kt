@@ -62,7 +62,7 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
     val groupBlips = group
         .filter { it.phoneId != myId && it.rssi != null }
         .map { member ->
-            val role = if (member.isCarrier) "Carrier" else "Standby"
+            val role = if (member.carriedCount > 0) "Carrying ${member.carriedCount}" else "Phone"
             RadarBlip(
                 phoneId = member.phoneId,
                 label = "$role ${phoneLabel(member.phoneId)}",
@@ -79,8 +79,6 @@ fun VictimScreen(flare: FlareViewModel, modifier: Modifier = Modifier) {
 
         SosStatus.SENDING ->
             if (myRecord?.acked == true) "A rescuer received your SOS" else "Sending"
-
-        SosStatus.STANDING_BY -> "Standing by"
 
         SosStatus.HANDED_OFF -> "Handed off"
     }
