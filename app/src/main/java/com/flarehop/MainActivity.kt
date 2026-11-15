@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,11 +29,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.flarehop.flare.Flare
 import com.flarehop.flare.FlareService
 import com.flarehop.flare.RealFlareEngine
 import com.flarehop.flare.Role
 import com.flarehop.flare.SosDetails
+import com.flarehop.ui.FlareViewModel
+import com.flarehop.ui.MainScreen
+import com.flarehop.ui.DEVELOPMENT
 import com.flarehop.ui.theme.FlarehopTheme
 
 class MainActivity : ComponentActivity() {
@@ -41,9 +46,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             FlarehopTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    RadioTestScreen(modifier = Modifier.padding(innerPadding))
-                }
+                // Real Bluetooth only in test mode; development runs on sample data.
+                if (!DEVELOPMENT) StartBeacon()
+                val flare: FlareViewModel = viewModel()
+                MainScreen(flare)
             }
         }
     }
@@ -69,7 +75,18 @@ private fun radioPermissions(): Array<String> = buildList {
 }.toTypedArray()
 
 @Composable
-fun RadioTestScreen(modifier: Modifier = Modifier) {
+private fun StartBeacon() {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted ->
+        if (granted[Manifest.permission.BLUETOOTH_ADVERTISE] == true) FlareService.start(context)
+    }
+    LaunchedEffect(Unit) { launcher.launch(radioPermissions()) }
+}
+
+@Composable
+fun RadioTestScreen(modifier: Modifier = Modifier, onOpenApp: () -> Unit = {}) {
     val context = LocalContext.current
     val engine = Flare.engine
     val mySos by engine.mySos.collectAsState()
@@ -90,7 +107,10 @@ fun RadioTestScreen(modifier: Modifier = Modifier) {
 
             else -> "Beacon running: broadcasting and listening"
         }
-        if (granted[Manifest.permission.BLUETOOTH_ADVERTISE] == true) FlareService.start(context)
+        if (granted[Manifest.permission.BLUETOOTH_ADVERTISE] == true) {
+            FlareService.start(context)
+            onOpenApp()
+        }
     }
 
     Column(
@@ -102,6 +122,9 @@ fun RadioTestScreen(modifier: Modifier = Modifier) {
     ) {
         Text("Radio test")
         Text("Phone ID: ${(engine as? RealFlareEngine)?.phoneId ?: "-"}")
+        Button(onClick = onOpenApp, modifier = Modifier.fillMaxWidth()) {
+            Text("Open Flarehop")
+        }
         Role.entries.forEach { choice ->
             OutlinedButton(
                 onClick = {
@@ -152,3 +175,11 @@ fun RadioTestScreen(modifier: Modifier = Modifier) {
         }
     }
 }
+
+
+
+
+
+
+
+
