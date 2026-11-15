@@ -32,13 +32,19 @@ class FlareViewModel(application: Application) : AndroidViewModel(application) {
 
     // A rescuer phone sends a receipt for every SOS it hears (Contract 3, rule 2), which tells the
     // victim help is coming. Opening the tab alone must not do that, so the user confirms first.
+    // Once confirmed, the role stays on while other tabs are open, so receipts never stop just
+    // because the rescuer glanced at another screen.
     fun openTab(tab: Role) {
         _tab.value = tab
-        if (tab != Role.RESCUER) selectRole(tab)
+        if (tab != Role.RESCUER && _role.value != Role.RESCUER) selectRole(tab)
     }
 
     fun becomeRescuer() {
         selectRole(Role.RESCUER)
+    }
+
+    fun stopRescuing() {
+        selectRole(Role.VICTIM)
     }
 
     private fun selectRole(role: Role) {
