@@ -125,6 +125,17 @@ class HandoffRulesTest {
     }
 
     @Test
+    fun rule5NobodyWithMoreChargeMeansTheSosStaysPut() {
+        val a = phone("A", seed = 1, battery = 50)
+        val b = phone("B", seed = 2, battery = 5)
+        send(a)
+        a.setBattery(9)
+        radio.run(3_000)
+        assertEquals(SosStatus.SENDING, a.mySos.value!!.status)
+        assertTrue(b.carried.value.isEmpty())
+    }
+
+    @Test
     fun rule5ACarrierAboutToDieHandsOnEverythingItBroadcasts() {
         val a = phone("A", seed = 1, battery = 50)
         val b = phone("B", seed = 2, battery = 80)

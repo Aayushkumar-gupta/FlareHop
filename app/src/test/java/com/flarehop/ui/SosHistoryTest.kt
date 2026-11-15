@@ -49,7 +49,7 @@ class SosHistoryTest {
 
     @Test
     fun theFirstPacketIsLoggedWithItsPhoneAndBattery() {
-        assertEquals(listOf("First heard from the victim's phone 1A2B (40%)"), texts(record()))
+        assertEquals(listOf("Connected to the victim's phone 1A2B (40%)"), texts(record()))
     }
 
     @Test
@@ -64,12 +64,17 @@ class SosHistoryTest {
             record(carrierId = 0x3C4D, battery = 80, rssi = -55, heardAt = 5_000L),
         ).map { history.update(listOf(it)) }.last().getValue(7L)
 
-        assertEquals("Now carried by phone 3C4D (80%)", track.history.last().text)
+        assertEquals(
+            "Connected to phone 3C4D (80%), now carrying the SOS",
+            track.history.last().text,
+        )
         assertEquals(listOf(0x1A2B, 0x3C4D), track.carriers.map { it.phoneId })
         val carrier = track.carriers.last()
         assertEquals(80, carrier.battery)
         assertEquals(-55, carrier.rssi)
         assertEquals(5_000L, carrier.lastHeardAt)
+        assertEquals(5_000L, carrier.connectedAt)
+        assertEquals(1_000L, track.carriers.first().connectedAt)
         assertTrue(track.carriers.first().isVictim)
     }
 
@@ -80,7 +85,28 @@ class SosHistoryTest {
             record(carrierId = 0x3C4D, heardAt = 2_000L),
             record(heardAt = 3_000L),
         )
-        assertEquals("The victim's phone 1A2B is sending again", log.last())
+        assertEquals(
+            "Connected again to the victim's phone 1A2B (40%), the victim is sending",
+            log.last(),
+        )
+    }
+
+    @Test
+    fun aPhoneHeardBeforeKeepsWhenItFirstConnected() {
+        val track = listOf(
+            record(),
+            record(carrierId = 0x3C4D, heardAt = 2_000L),
+            record(heardAt = 3_000L),
+            record(carrierId = 0x3C4D, battery = 70, heardAt = 9_000L),
+        ).map { history.update(listOf(it)) }.last().getValue(7L)
+
+        assertEquals(
+            "Connected again to phone 3C4D (70%), now carrying the SOS",
+            track.history.last().text,
+        )
+        val carrier = track.carriers.single { it.phoneId == 0x3C4D }
+        assertEquals(2_000L, carrier.connectedAt)
+        assertEquals(9_000L, carrier.lastHeardAt)
     }
 
     @Test
